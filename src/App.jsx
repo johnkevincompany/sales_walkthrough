@@ -66,7 +66,7 @@ const appId = "lc-custom-sales";
 // Create a Zap -> Trigger: Webhooks by Zapier (Catch Hook) -> Copy URL
 const ZAPIER_WEBHOOK_URL = "https://hooks.zapier.com/hooks/catch/25601836/ukvgzxm/"; 
 
-// --- SUB-COMPONENTS ---
+/ --- SUB-COMPONENTS --- /
 
 // 1. STAFF LOGIN GATE
 const StaffLogin = ({ onLogin, onCancel }) => {
