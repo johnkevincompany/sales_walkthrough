@@ -56,6 +56,12 @@ import {
     appId: "1:413932370308:web:5827e29ade91fbfefa05d1"
   };
 
+  // 2. YOU MUST HAVE THESE 3 LINES TO FIX THE ERROR:
+const app = initializeApp(firebaseConfig); // <--- This line uses 'initializeApp'
+const auth = getAuth(app);
+const db = getFirestore(app);
+const appId = "lc-custom-sales";
+
 // 2. ZAPIER (REPLACE THIS WITH YOUR ACTUAL WEBHOOK URL)
 // Create a Zap -> Trigger: Webhooks by Zapier (Catch Hook) -> Copy URL
 const ZAPIER_WEBHOOK_URL = "https://hooks.zapier.com/hooks/catch/25601836/ukvgzxm/"; 
