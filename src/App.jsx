@@ -24,7 +24,7 @@ import {
   Link as LinkIcon,
   Lock,
   Unlock,
-  TestTube // Added Icon for Test Mode
+  TestTube 
 } from 'lucide-react';
 
 // --- FIREBASE IMPORTS ---
@@ -71,10 +71,7 @@ const StaffLogin = ({ onLogin, onCancel }) => {
   const handleLogin = (e) => {
     e.preventDefault();
     setLoading(true);
-    
-    // Simulate API check or Auth provider
     setTimeout(() => {
-      // DEMO PASSCODE: 1234
       if (passcode === "1234") {
         onLogin();
       } else {
@@ -95,7 +92,6 @@ const StaffLogin = ({ onLogin, onCancel }) => {
           <h2 className="text-2xl font-black text-slate-900">STAFF ACCESS</h2>
           <p className="text-slate-900/80 font-medium">Secured Client Files</p>
         </div>
-        
         <form onSubmit={handleLogin} className="p-8 space-y-6">
           <div>
              <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Enter Access Code</label>
@@ -111,7 +107,6 @@ const StaffLogin = ({ onLogin, onCancel }) => {
              />
              {error && <p className="text-red-500 text-sm font-bold text-center mt-2 animate-pulse">Incorrect Access Code</p>}
           </div>
-
           <button 
             disabled={loading || passcode.length < 4}
             type="submit" 
@@ -120,11 +115,8 @@ const StaffLogin = ({ onLogin, onCancel }) => {
             {loading ? <Loader2 className="animate-spin" /> : "Unlock Dashboard"}
           </button>
         </form>
-        
         <div className="bg-slate-50 p-4 text-center border-t border-slate-100">
-          <button onClick={onCancel} className="text-slate-500 font-bold text-sm hover:text-slate-800">
-            Cancel / Return Home
-          </button>
+          <button onClick={onCancel} className="text-slate-500 font-bold text-sm hover:text-slate-800">Cancel / Return Home</button>
         </div>
       </div>
       <p className="text-slate-500 mt-8 text-sm">Demo Access Code: <span className="font-mono bg-slate-800 text-white px-2 py-1 rounded">1234</span></p>
@@ -146,19 +138,25 @@ const IntakeForm = ({ onCancel, onSubmit }) => {
     source: "",
     contactMethod: "Email"
   });
-  const [isTestMode, setIsTestMode] = useState(false); // New Test Toggle
+  const [isTestMode, setIsTestMode] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setIsSubmitting(true);
     
-    // 1. Format Data for Zapier / CF
-    // If Test Mode is ON, prepend [TEST] to the name so it's easy to identify and delete in real CF account
+    // Auto-Split Name Logic for Contractor Foreman
+    const nameParts = formData.clientName.trim().split(' ');
+    const firstName = nameParts[0] || "Unknown";
+    // Join the rest of the name parts for Last Name, or default to "Client" if none
+    const lastName = nameParts.length > 1 ? nameParts.slice(1).join(' ') : "Client";
+    
     const finalClientName = isTestMode ? `[TEST] - ${formData.clientName}` : formData.clientName;
     
     const payload = {
       ...formData,
+      firstName: firstName, // Explicitly send first name
+      lastName: lastName,   // Explicitly send last name
       clientName: finalClientName,
       status: "Ready for Walkthrough",
       dateCreated: new Date().toISOString(),
@@ -166,27 +164,25 @@ const IntakeForm = ({ onCancel, onSubmit }) => {
     };
 
     try {
-      // 2. Send to Zapier (Integration Step)
+      // Send to Zapier
       if (ZAPIER_WEBHOOK_URL && ZAPIER_WEBHOOK_URL.includes('hooks.zapier.com')) {
          try {
            await fetch(ZAPIER_WEBHOOK_URL, {
              method: 'POST',
              body: JSON.stringify(payload)
-             // No headers needed for standard Zapier catch hooks
            });
            console.log("Zapier Payload Sent");
          } catch (zapError) {
            console.warn("Zapier connection failed (ignoring for app flow):", zapError);
-           // We don't block the app if Zapier fails, we still save to Firebase
          }
       }
 
-      // 3. Save to Firebase (Internal DB)
+      // Save to Firebase
       await onSubmit(payload);
 
     } catch (error) {
       console.error("Error submitting form:", error);
-      alert("There was an error submitting your inquiry. Please try again.");
+      alert("Error submitting. Please try again.");
       setIsSubmitting(false);
     }
   };
@@ -210,8 +206,6 @@ const IntakeForm = ({ onCancel, onSubmit }) => {
         </div>
         
         <form onSubmit={handleSubmit} className="p-6 md:p-8 space-y-6">
-          
-          {/* Test Mode Toggle */}
           <div className="flex items-center justify-end">
             <label className="flex items-center gap-2 cursor-pointer bg-slate-100 px-3 py-1 rounded-full border border-slate-200 hover:bg-slate-200 transition-colors">
               <input 
@@ -229,13 +223,11 @@ const IntakeForm = ({ onCancel, onSubmit }) => {
           {/* Contact Info */}
           <div className="space-y-4">
             <h3 className="text-lg font-bold text-slate-900 border-b pb-2">Contact Information</h3>
-            
             <div>
               <label className="block text-sm font-bold text-slate-700 mb-1">Full Name <span className="text-red-500">*</span></label>
               <input required type="text" className="w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Jane Doe" 
                 value={formData.clientName} onChange={e => updateField('clientName', e.target.value)} />
             </div>
-
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-bold text-slate-700 mb-1">Email address <span className="text-red-500">*</span></label>
@@ -251,10 +243,8 @@ const IntakeForm = ({ onCancel, onSubmit }) => {
                 </div>
               </div>
             </div>
-            
             <div>
               <label className="block text-sm font-bold text-slate-700 mb-1">Preferred Contact Method <span className="text-red-500">*</span></label>
-              <p className="text-xs text-slate-500 mb-2">Please select the best way we can reach you!</p>
               <div className="flex gap-4">
                 {['Email', 'Phone', 'Text'].map(method => (
                   <label key={method} className="flex items-center gap-2 cursor-pointer">
@@ -273,32 +263,16 @@ const IntakeForm = ({ onCancel, onSubmit }) => {
             </div>
           </div>
 
-          {/* Locations */}
+          {/* Locations & Vision */}
           <div className="space-y-4 pt-4">
-            <h3 className="text-lg font-bold text-slate-900 border-b pb-2">Location Details</h3>
-            
-            <div>
+            <h3 className="text-lg font-bold text-slate-900 border-b pb-2">Project Vision</h3>
+             <div>
               <label className="block text-sm font-bold text-slate-700 mb-1">What's the project address? <span className="text-red-500">*</span></label>
-              <p className="text-xs text-slate-500 mb-2">This is the location where the job will be performed.</p>
               <input required type="text" className="w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="123 Project St..."
                 value={formData.address} onChange={e => updateField('address', e.target.value)} />
             </div>
-
-            <div>
-              <label className="block text-sm font-bold text-slate-700 mb-1">What's your Mailing Address? <span className="text-red-500">*</span></label>
-              <p className="text-xs text-slate-500 mb-2">In case we need to send any important documents through mail.</p>
-              <input required type="text" className="w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Same as project address..."
-                value={formData.mailingAddress} onChange={e => updateField('mailingAddress', e.target.value)} />
-            </div>
-          </div>
-
-          {/* Project Details */}
-          <div className="space-y-4 pt-4">
-            <h3 className="text-lg font-bold text-slate-900 border-b pb-2">Project Vision</h3>
-
             <div>
               <label className="block text-sm font-bold text-slate-700 mb-1">Type Of Project <span className="text-red-500">*</span></label>
-              <p className="text-xs text-slate-500 mb-2">What are you looking to build or renovate?</p>
               <select className="w-full p-3 border border-slate-300 rounded-lg bg-white focus:ring-2 focus:ring-blue-500 outline-none"
                 value={formData.projectType} onChange={e => updateField('projectType', e.target.value)}>
                 <option>New Build</option>
@@ -308,7 +282,6 @@ const IntakeForm = ({ onCancel, onSubmit }) => {
                 <option>Other</option>
               </select>
             </div>
-
             <div>
               <label className="block text-sm font-bold text-slate-700 mb-1">Estimated Budget <span className="text-slate-400 font-normal">(Optional)</span></label>
               <select className="w-full p-3 border border-slate-300 rounded-lg bg-white focus:ring-2 focus:ring-blue-500 outline-none"
@@ -321,10 +294,8 @@ const IntakeForm = ({ onCancel, onSubmit }) => {
                 <option>$100k+</option>
               </select>
             </div>
-
             <div>
               <label className="block text-sm font-bold text-slate-700 mb-1">Tell Us About Your Vision <span className="text-red-500">*</span></label>
-              <p className="text-xs text-slate-500 mb-2">Briefly describe your project, style, timeline, or anything you’d like us to know.</p>
               <textarea 
                 required 
                 className="w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" 
@@ -334,15 +305,7 @@ const IntakeForm = ({ onCancel, onSubmit }) => {
                 value={formData.vision} 
                 onChange={e => updateField('vision', e.target.value)}
               ></textarea>
-              <div className="text-right text-xs text-slate-400 mt-1">
-                {formData.vision.length}/2000
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-sm font-bold text-slate-700 mb-1">How did you hear about us?</label>
-              <input type="text" className="w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Google, referral, Instagram, etc."
-                value={formData.source} onChange={e => updateField('source', e.target.value)} />
+              <div className="text-right text-xs text-slate-400 mt-1">{formData.vision.length}/2000</div>
             </div>
           </div>
 
@@ -364,10 +327,8 @@ const WalkthroughFlow = ({ lead, onBack, onComplete }) => {
   const [step, setStep] = useState(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
   
-  // Initialize form with Lead Data (Pre-filled!)
   const [formData, setFormData] = useState({
     ...lead,
-    // Walkthrough specific fields - Initialize if not present in lead doc
     decisionMakers: lead.decisionMakers || "",
     parking: lead.parking || "",
     access: lead.access || "",
@@ -435,7 +396,7 @@ const WalkthroughFlow = ({ lead, onBack, onComplete }) => {
                </div>
                <div>
                   <label className="flex justify-between text-sm font-bold text-slate-600 mb-2">
-                    <span>Scope of Work (Estimate Description)</span>
+                    <span>Scope of Work</span>
                     <span className="text-blue-600 flex items-center gap-1 text-xs"><Mic size={12}/> Dictate</span>
                   </label>
                   <textarea rows={6} className="w-full p-4 border rounded-lg text-lg leading-relaxed focus:ring-2 focus:ring-blue-500"
@@ -443,7 +404,6 @@ const WalkthroughFlow = ({ lead, onBack, onComplete }) => {
                     value={formData.scopeNotes} onChange={e => updateField('scopeNotes', e.target.value)}></textarea>
                </div>
             </div>
-            
             <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
                <h3 className="font-bold text-slate-800 mb-3">Site Logistics</h3>
                <div className="grid grid-cols-2 gap-3">
@@ -503,11 +463,11 @@ const WalkthroughFlow = ({ lead, onBack, onComplete }) => {
     try {
       await onComplete({
         ...formData,
-        status: "Estimate Pending" // Update status when walkthrough done
+        status: "Estimate Pending"
       });
     } catch (error) {
       console.error("Error saving walkthrough:", error);
-      alert("Failed to save walkthrough data. Please try again.");
+      alert("Failed to save walkthrough. Please try again.");
       setIsSubmitting(false);
     }
   };
@@ -519,11 +479,9 @@ const WalkthroughFlow = ({ lead, onBack, onComplete }) => {
         <span className="font-bold">Walkthrough: {lead.clientName}</span>
         <div className="w-6"></div>
       </header>
-      
       <main className="flex-1 p-4 overflow-y-auto pb-24">
         {renderStep()}
       </main>
-
       <div className="fixed bottom-0 left-0 right-0 bg-white border-t p-4 flex gap-4 shadow-lg">
         {step > 0 && <button onClick={() => setStep(s => s-1)} className="px-4 py-3 border rounded-lg"><ChevronLeft/></button>}
         <button 
@@ -539,20 +497,17 @@ const WalkthroughFlow = ({ lead, onBack, onComplete }) => {
   );
 };
 
-
 // 4. MAIN APP CONTROLLER
 export default function WalkthroughApp() {
-  const [view, setView] = useState('home'); // home, intake, walkthrough, success, staff-login
+  const [view, setView] = useState('home'); 
   const [leads, setLeads] = useState([]);
   const [selectedLead, setSelectedLead] = useState(null);
   const [lastSyncedData, setLastSyncedData] = useState(null);
   
-  // Auth State
   const [user, setUser] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [isStaffAuthenticated, setIsStaffAuthenticated] = useState(false);
 
-  // --- FIREBASE AUTH & DATA SYNC ---
   useEffect(() => {
     const initAuth = async () => {
       try {
@@ -565,30 +520,24 @@ export default function WalkthroughApp() {
         console.error("Auth Error:", err);
       }
     };
-
     initAuth();
     const unsubscribeAuth = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
       setAuthLoading(false);
     });
-
     return () => unsubscribeAuth();
   }, []);
 
   useEffect(() => {
     if (!user) return;
-
-    // Use PUBLIC DATA path so Customer Form and Sales Walkthrough share data
-    // Collection Path: /artifacts/{appId}/public/data/leads
     const leadsRef = collection(db, 'artifacts', appId, 'public', 'data', 'leads');
-    const q = query(leadsRef); // Simple query, sorting done in JS
+    const q = query(leadsRef); 
 
     const unsubscribeData = onSnapshot(q, (snapshot) => {
       const loadedLeads = snapshot.docs.map(doc => ({
         id: doc.id,
         ...doc.data()
       }));
-      // Sort by dateCreated descending (newest first)
       loadedLeads.sort((a, b) => new Date(b.dateCreated) - new Date(a.dateCreated));
       setLeads(loadedLeads);
     }, (error) => {
@@ -597,8 +546,6 @@ export default function WalkthroughApp() {
 
     return () => unsubscribeData();
   }, [user]);
-
-  // --- ACTIONS ---
 
   const handleCreateLead = async (leadData) => {
     if (!user) return;
@@ -628,7 +575,6 @@ export default function WalkthroughApp() {
     setView('home');
   };
 
-  // --- LOADING SCREEN ---
   if (authLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50">
@@ -637,9 +583,7 @@ export default function WalkthroughApp() {
     );
   }
 
-  // --- VIEW ROUTING ---
-
-  // Home Screen
+  // View Routing
   if (view === 'home') {
     return (
       <div className="min-h-screen bg-slate-100 p-6 flex flex-col justify-center">
@@ -650,7 +594,6 @@ export default function WalkthroughApp() {
           <h1 className="text-3xl font-bold text-slate-800">Sales Portal</h1>
           <p className="text-slate-500">Choose your workspace</p>
         </div>
-
         <div className="grid gap-4 max-w-sm mx-auto w-full">
           <button onClick={() => setView('intake')} className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 hover:border-blue-500 hover:shadow-md transition-all text-left flex items-center gap-4 group">
             <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center text-blue-600 group-hover:bg-blue-600 group-hover:text-white transition-colors">
@@ -664,7 +607,6 @@ export default function WalkthroughApp() {
           
           <button 
             onClick={() => {
-              // Copy link to clipboard logic simulation
               alert("Link copied to clipboard: https://lccustom.biz/form");
             }}
             className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 hover:bg-slate-50 transition-all text-left flex items-center gap-4 group"
@@ -677,9 +619,7 @@ export default function WalkthroughApp() {
                <div className="text-slate-500 text-xs">Send this link to clients</div>
              </div>
           </button>
-
           <div className="w-full h-px bg-slate-300 my-2"></div>
-
           <button onClick={handleStaffAccess} className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 hover:border-amber-500 hover:shadow-md transition-all text-left flex items-center gap-4 group">
              <div className={`w-12 h-12 rounded-full flex items-center justify-center transition-colors ${isStaffAuthenticated ? 'bg-green-100 text-green-600 group-hover:bg-green-600 group-hover:text-white' : 'bg-slate-100 text-slate-400 group-hover:bg-amber-600 group-hover:text-white'}`}>
               {isStaffAuthenticated ? <Unlock size={24}/> : <Lock size={24}/>}
@@ -694,7 +634,6 @@ export default function WalkthroughApp() {
     );
   }
 
-  // Staff Login Gate
   if (view === 'staff-login') {
     return <StaffLogin 
       onLogin={() => {
@@ -705,7 +644,6 @@ export default function WalkthroughApp() {
     />;
   }
 
-  // Intake Mode
   if (view === 'intake') {
     return <IntakeForm 
       onCancel={() => setView('home')} 
@@ -713,7 +651,6 @@ export default function WalkthroughApp() {
     />;
   }
 
-  // Intake Success
   if (view === 'intake-success') {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center p-6 text-center bg-slate-50">
@@ -725,7 +662,6 @@ export default function WalkthroughApp() {
     );
   }
 
-  // Select Lead Mode (Pre-Walkthrough)
   if (view === 'select-lead') {
     return (
       <div className="min-h-screen bg-slate-50 p-4">
@@ -738,12 +674,10 @@ export default function WalkthroughApp() {
             <Lock size={12}/> Lock Access
           </button>
         </div>
-        
         <div className="relative mb-6">
           <Search className="absolute left-3 top-3 text-slate-400" size={20}/>
           <input type="text" placeholder="Search address or name..." className="w-full pl-10 p-3 rounded-lg border border-slate-200 shadow-sm focus:ring-2 focus:ring-blue-500 outline-none" />
         </div>
-
         <div className="space-y-3 pb-10">
           {leads.length === 0 ? (
              <div className="text-center py-10 text-slate-400">
@@ -767,7 +701,6 @@ export default function WalkthroughApp() {
     );
   }
 
-  // Walkthrough Mode
   if (view === 'walkthrough') {
     return <WalkthroughFlow 
       lead={selectedLead} 
@@ -776,18 +709,15 @@ export default function WalkthroughApp() {
     />;
   }
 
-  // Walkthrough Success
   if (view === 'walkthrough-success') {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center p-6 text-center bg-slate-50">
         <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center text-green-600 mb-6"><Wifi size={40}/></div>
         <h2 className="text-2xl font-bold text-slate-900 mb-2">Estimate Started!</h2>
         <p className="text-slate-500 mb-8 max-w-xs mx-auto">Data saved to cloud. The Estimator can now see photos and scope.</p>
-        
         <div className="w-full bg-slate-900 text-slate-300 text-left p-4 rounded-lg font-mono text-xs overflow-auto max-h-40 mb-6">
           {JSON.stringify(lastSyncedData, null, 2)}
         </div>
-
         <button onClick={() => setView('select-lead')} className="px-8 py-3 bg-blue-600 text-white rounded-lg font-bold shadow-lg">Return to List</button>
       </div>
     );
