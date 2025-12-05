@@ -25,6 +25,7 @@ const firebaseConfig = {
   appId: "1:413932370308:web:5827e29ade91fbfefa05d1"
 };
 
+
 // 1. ZAPIER - LEAD CREATION (Intake Form -> Contractor Foreman)
 const ZAPIER_LEAD_WEBHOOK_URL = "https://hooks.zapier.com/hooks/catch/25601836/ukvgzxm/"; 
 
@@ -529,6 +530,7 @@ export default function WalkthroughApp() {
     const metaTags = [
         { name: 'theme-color', content: '#171717' },
         { name: 'apple-mobile-web-app-capable', content: 'yes' },
+        { name: 'mobile-web-app-capable', content: 'yes' },
         { name: 'apple-mobile-web-app-status-bar-style', content: 'black-translucent' }
     ];
 
@@ -542,11 +544,28 @@ export default function WalkthroughApp() {
         meta.content = tagData.content;
     });
 
-    const initAuth = async () => { try { if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) await signInWithCustomToken(auth, __initial_auth_token); else await signInAnonymously(auth); } catch (e) {} }; initAuth(); 
+    const initAuth = async () => { 
+        try { 
+            if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                await signInWithCustomToken(auth, __initial_auth_token); 
+            } else { 
+                await signInAnonymously(auth); 
+            } 
+        } catch (e) {
+            console.error("Auth failed", e);
+        } 
+    }; 
+    initAuth();
     
+    // Fix: Moved onAuthStateChanged OUT of the cleanup function so it runs immediately
+    const unsubscribe = onAuthStateChanged(auth, (u) => { 
+        setUser(u); 
+        setAuthLoading(false); 
+    });
+
     return () => {
         window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
-        onAuthStateChanged(auth, (u) => { setUser(u); setAuthLoading(false); }); 
+        unsubscribe(); // Cleanup subscription
     };
   }, []);
 
