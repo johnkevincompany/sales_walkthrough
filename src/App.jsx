@@ -27,8 +27,7 @@ const firebaseConfig = {
 
 
 // 1. ZAPIER - LEAD CREATION (Intake Form -> Contractor Foreman)
-const ZAPIER_LEAD_WEBHOOK_URL = "https://hooks.zapier.com/hooks/catch/25601836/ukvgzxm/"; 
-
+const ZAPIER_LEAD_WEBHOOK_URL = "https://hooks.zapier.com/hooks/catch/25601836/ukvgzxm/";
 // 2. ZAPIER - DRIVE UPLOAD (Walkthrough -> Google Drive)
 const ZAPIER_DRIVE_WEBHOOK_URL = "https://hooks.zapier.com/hooks/catch/25601836/ufb2iwb/"; 
 
@@ -112,15 +111,24 @@ const generateEstimateWithGemini = async (photosArray, scopeNotes) => {
     `;
 
     try {
-        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`, {
+        // FIXED: Updated model to gemini-2.5-flash-preview-09-2025
+        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${GEMINI_API_KEY}`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ contents: [{ parts: [{ text: prompt }, ...inlineDataParts] }] })
         });
+        
+        if (!response.ok) {
+            throw new Error(`Gemini API Error: ${response.status} ${response.statusText}`);
+        }
+
         const data = await response.json();
         const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+        
         if (!text) throw new Error("No text returned from Gemini");
-        const jsonStr = text.replace(/```json/g, '').replace(/```/g, '').trim();
+        
+        // Clean markdown block if present (```json ... ```)
+        const jsonStr = text.replace(/^```json\s*/, '').replace(/\s*```$/, '').trim();
         return JSON.parse(jsonStr);
     } catch (e) {
         console.error("Gemini Error:", e);
