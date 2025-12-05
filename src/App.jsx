@@ -25,9 +25,9 @@ const firebaseConfig = {
   appId: "1:413932370308:web:5827e29ade91fbfefa05d1"
 };
 
-
 // 1. ZAPIER - LEAD CREATION (Intake Form -> Contractor Foreman)
 const ZAPIER_LEAD_WEBHOOK_URL = "https://hooks.zapier.com/hooks/catch/25601836/ukvgzxm/";
+
 // 2. ZAPIER - DRIVE UPLOAD (Walkthrough -> Google Drive)
 const ZAPIER_DRIVE_WEBHOOK_URL = "https://hooks.zapier.com/hooks/catch/25601836/ufb2iwb/"; 
 
@@ -111,7 +111,6 @@ const generateEstimateWithGemini = async (photosArray, scopeNotes) => {
     `;
 
     try {
-        // FIXED: Updated model to gemini-2.5-flash-preview-09-2025
         const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${GEMINI_API_KEY}`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -127,7 +126,6 @@ const generateEstimateWithGemini = async (photosArray, scopeNotes) => {
         
         if (!text) throw new Error("No text returned from Gemini");
         
-        // Clean markdown block if present (```json ... ```)
         const jsonStr = text.replace(/^```json\s*/, '').replace(/\s*```$/, '').trim();
         return JSON.parse(jsonStr);
     } catch (e) {
@@ -270,14 +268,11 @@ const WalkthroughFlow = ({ lead, onBack, onComplete }) => {
 
   const updateField = (f, v) => setFormData(p => ({ ...p, [f]: v }));
   
-  // -- UPDATED PHOTO HANDLER (MULTI-SELECT) --
   const handleAddPhotos = async (e) => {
-    // 1. Get all selected files
     const files = Array.from(e.target.files);
     
     if (files.length > 0) {
         setIsCompressing(true);
-        // 2. Compress all images in parallel
         try {
           const newPhotos = await Promise.all(
             files.map(async (file) => {
@@ -289,7 +284,6 @@ const WalkthroughFlow = ({ lead, onBack, onComplete }) => {
               };
             })
           );
-          // 3. Add to state
           setPhotos(prev => [...prev, ...newPhotos]);
         } catch (error) {
           console.error("Compression error:", error);
@@ -306,7 +300,6 @@ const WalkthroughFlow = ({ lead, onBack, onComplete }) => {
     setIsSubmitting(true);
     let aiEstimate = null;
 
-    // STEP 1: AI GENERATION
     setStatusMsg(`AI Analyzing ${photos.length} photos...`);
     const realAiResult = await generateEstimateWithGemini(photos, formData.scopeNotes);
     
@@ -321,7 +314,6 @@ const WalkthroughFlow = ({ lead, onBack, onComplete }) => {
         };
     }
 
-    // STEP 2: PREPARE SCOPE DOC
     const aiSummary = aiEstimate.summary || "No AI summary available.";
     const aiDivisions = aiEstimate.divisions ? aiEstimate.divisions.map(d => `DIV ${d.code} - ${d.name}:\n${d.items.map(i => ` - ${i.task}: ${i.desc}`).join('\n')}`).join('\n\n') : "";
 
@@ -347,7 +339,6 @@ DETAILED BREAKDOWN:
 ${aiDivisions}
 `;
 
-    // STEP 3: UPLOAD TO DRIVE
     setStatusMsg("Uploading Smart Doc & Photos...");
     try {
        if (ZAPIER_DRIVE_WEBHOOK_URL && ZAPIER_DRIVE_WEBHOOK_URL.includes('hooks.zapier.com')) {
@@ -370,7 +361,6 @@ ${aiDivisions}
        }
     } catch (error) { console.error("Zapier Upload Failed", error); }
 
-    // STEP 4: SAVE TO DB
     const finalPayload = { 
         ...formData, 
         photos: photos.map(p => p.data), 
@@ -412,11 +402,10 @@ ${aiDivisions}
                     
                     <div className="grid grid-cols-2 gap-4">
                         <div className="aspect-square rounded-3xl border-2 border-dashed border-neutral-300 hover:border-neutral-900 hover:bg-neutral-100 transition-all flex flex-col items-center justify-center relative overflow-hidden group">
-                             {/* UPDATED INPUT: Multiple allowed, capture removed to allow Gallery access */}
                              <input 
                                 type="file" 
                                 accept="image/*" 
-                                multiple // Allow selecting multiple files
+                                multiple 
                                 onChange={handleAddPhotos} 
                                 className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
                              />
@@ -474,10 +463,17 @@ ${aiDivisions}
   );
 };
 
-const OfficeEstimateView = ({ lead, onBack }) => {
+const OfficeEstimateView = ({ lead, onBack, onApprove }) => {
+  const [approving, setApproving] = useState(false);
   const estimate = lead.aiEstimate || {};
   const total = estimate.total || 0;
   const divisions = estimate.divisions || [];
+
+  const handleApprove = async () => {
+      setApproving(true);
+      await onApprove();
+      setApproving(false);
+  };
 
   return (
     <div className="min-h-screen bg-neutral-100 flex flex-col font-sans text-neutral-900">
@@ -510,7 +506,11 @@ const OfficeEstimateView = ({ lead, onBack }) => {
                     </div>
                 ))}
             </div>
-            <div className="flex gap-4 pt-8 pb-20"><Button variant="primary"><FileCheck size={18}/> Approve & Send</Button></div>
+            <div className="flex gap-4 pt-8 pb-20">
+                <Button variant="primary" onClick={handleApprove} disabled={approving}>
+                    {approving ? <Loader2 className="animate-spin"/> : <><FileCheck size={18}/> Approve & Send</>}
+                </Button>
+            </div>
         </div>
       </main>
     </div>
@@ -525,70 +525,36 @@ export default function WalkthroughApp() {
   const [authLoading, setAuthLoading] = useState(true);
   const [deferredPrompt, setDeferredPrompt] = useState(null);
 
-  // --- PWA INIT LOGIC ---
   useEffect(() => {
-    // 1. PWA Install Prompt Listener
-    const handleBeforeInstallPrompt = (e) => {
-      e.preventDefault();
-      setDeferredPrompt(e);
-    };
+    const handleBeforeInstallPrompt = (e) => { e.preventDefault(); setDeferredPrompt(e); };
     window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
 
-    // 2. Inject PWA Meta Tags
     const metaTags = [
         { name: 'theme-color', content: '#171717' },
         { name: 'apple-mobile-web-app-capable', content: 'yes' },
         { name: 'mobile-web-app-capable', content: 'yes' },
         { name: 'apple-mobile-web-app-status-bar-style', content: 'black-translucent' }
     ];
-
     metaTags.forEach(tagData => {
         let meta = document.querySelector(`meta[name="${tagData.name}"]`);
-        if (!meta) {
-            meta = document.createElement('meta');
-            meta.name = tagData.name;
-            document.head.appendChild(meta);
-        }
+        if (!meta) { meta = document.createElement('meta'); meta.name = tagData.name; document.head.appendChild(meta); }
         meta.content = tagData.content;
     });
 
-    const initAuth = async () => { 
-        try { 
-            if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-                await signInWithCustomToken(auth, __initial_auth_token); 
-            } else { 
-                await signInAnonymously(auth); 
-            } 
-        } catch (e) {
-            console.error("Auth failed", e);
-        } 
-    }; 
+    const initAuth = async () => { try { if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) { await signInWithCustomToken(auth, __initial_auth_token); } else { await signInAnonymously(auth); } } catch (e) { console.error("Auth failed", e); } }; 
     initAuth();
     
-    // Fix: Moved onAuthStateChanged OUT of the cleanup function so it runs immediately
-    const unsubscribe = onAuthStateChanged(auth, (u) => { 
-        setUser(u); 
-        setAuthLoading(false); 
-    });
-
-    return () => {
-        window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
-        unsubscribe(); // Cleanup subscription
-    };
+    const unsubscribe = onAuthStateChanged(auth, (u) => { setUser(u); setAuthLoading(false); });
+    return () => { window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt); unsubscribe(); };
   }, []);
 
   useEffect(() => { if (!user) return; return onSnapshot(query(collection(db, 'artifacts', appId, 'public', 'data', 'leads')), (snap) => { setLeads(snap.docs.map(d => ({id: d.id, ...d.data()})).sort((a,b) => new Date(b.dateCreated) - new Date(a.dateCreated))); }); }, [user]);
   
   const handleCreateLead = async (d) => { if(user) { await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'leads'), d); setView('intake-success'); }};
   const handleUpdateLead = async (d) => { if(user) { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'leads', d.id), d); setView('walkthrough-success'); }};
+  const handleApproveEstimate = async (leadId) => { if(user) { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'leads', leadId), { status: "Estimate Approved", dateApproved: new Date().toISOString() }); setView('select-lead-office'); }};
   
-  const handleInstallClick = async () => {
-    if (deferredPrompt) {
-        deferredPrompt.prompt();
-        const { outcome } = await deferredPrompt.userChoice;
-        if (outcome === 'accepted') setDeferredPrompt(null);
-    }
-  };
+  const handleInstallClick = async () => { if (deferredPrompt) { deferredPrompt.prompt(); const { outcome } = await deferredPrompt.userChoice; if (outcome === 'accepted') setDeferredPrompt(null); } };
 
   if (authLoading) return <div className="min-h-screen flex items-center justify-center bg-neutral-50"><Loader2 className="animate-spin text-neutral-300"/></div>;
 
@@ -600,11 +566,7 @@ export default function WalkthroughApp() {
         <div className="relative z-10 space-y-4 w-full max-w-sm mx-auto">
             <button onClick={() => setView('intake')} className="w-full bg-white p-6 rounded-3xl shadow-xl shadow-neutral-900/10 flex items-center justify-between group active:scale-95 transition-transform"><div className="flex items-center gap-4"><div className="p-3 bg-amber-100 text-amber-600 rounded-full"><UserPlus size={24}/></div><div className="text-left"><div className="font-bold text-neutral-900">New Client</div><div className="text-xs text-neutral-400 font-medium uppercase tracking-wider">Intake Form</div></div></div><div className="w-10 h-10 rounded-full border border-neutral-100 flex items-center justify-center group-hover:bg-neutral-50"><ChevronRight className="text-neutral-300"/></div></button>
             <button onClick={() => setView('login')} className="w-full bg-neutral-900 p-6 rounded-3xl shadow-xl shadow-neutral-900/20 flex items-center justify-between group active:scale-95 transition-transform"><div className="flex items-center gap-4"><div className="p-3 bg-white/10 text-white rounded-full"><Lock size={24}/></div><div className="text-left"><div className="font-bold text-white">Staff Access</div><div className="text-xs text-neutral-500 font-medium uppercase tracking-wider">Dashboard</div></div></div><ChevronRight className="text-neutral-600"/></button>
-            {deferredPrompt && (
-                <button onClick={handleInstallClick} className="w-full bg-transparent p-4 flex items-center justify-center gap-2 text-neutral-400 hover:text-neutral-900 text-xs font-bold uppercase tracking-widest transition-colors">
-                    <Download size={16} /> Install App
-                </button>
-            )}
+            {deferredPrompt && <button onClick={handleInstallClick} className="w-full bg-transparent p-4 flex items-center justify-center gap-2 text-neutral-400 hover:text-neutral-900 text-xs font-bold uppercase tracking-widest transition-colors"><Download size={16} /> Install App</button>}
         </div>
       </div>
   );
@@ -624,7 +586,7 @@ export default function WalkthroughApp() {
   if (view === 'intake-success') return <div className="min-h-screen bg-neutral-900 flex flex-col items-center justify-center p-8 text-center text-white"><div className="w-20 h-20 bg-green-500 rounded-full flex items-center justify-center mb-6 shadow-2xl shadow-green-500/50"><CheckCircle size={40} className="text-white"/></div><h2 className="text-3xl font-light mb-2">Success</h2><p className="text-neutral-400 mb-8">Client intake submitted successfully.</p><Button variant="secondary" onClick={() => setView('home')}>Done</Button></div>;
   if (view === 'walkthrough') return <WalkthroughFlow lead={selectedLead} onBack={() => setView('select-lead-field')} onComplete={handleUpdateLead} />;
   if (view === 'walkthrough-success') return <div className="min-h-screen bg-neutral-900 flex flex-col items-center justify-center p-8 text-center text-white"><div className="w-20 h-20 bg-blue-500 rounded-full flex items-center justify-center mb-6 shadow-2xl shadow-blue-500/50"><UploadCloud size={40} className="text-white"/></div><h2 className="text-3xl font-light mb-2">Synced</h2><p className="text-neutral-400 mb-8">Photos saved to Drive. Estimate generated by AI.</p><Button variant="secondary" onClick={() => setView('staff-dashboard')}>Return to Dashboard</Button></div>;
-  if (view === 'office-estimate') return <OfficeEstimateView lead={selectedLead} onBack={() => setView('select-lead-office')} />;
+  if (view === 'office-estimate') return <OfficeEstimateView lead={selectedLead} onBack={() => setView('select-lead-office')} onApprove={() => handleApproveEstimate(selectedLead.id)} />;
 
   return null;
 }
