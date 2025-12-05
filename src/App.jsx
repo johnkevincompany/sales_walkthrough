@@ -1,148 +1,192 @@
 import React, { useState, useEffect } from 'react';
 import { 
-  MapPin, 
-  Phone, 
-  Mail, 
-  Camera, 
-  CheckCircle, 
-  AlertTriangle, 
-  ChevronRight, 
-  ChevronLeft, 
-  Mic, 
-  Save, 
-  FileText,
-  ClipboardCheck,
-  Building2,
-  Loader2,
-  Wifi,
-  UserPlus,
-  HardHat,
-  Search,
-  ArrowRight,
-  Share2,
-  Copy,
-  Link as LinkIcon,
-  Lock,
-  Unlock,
-  TestTube 
+  MapPin, Phone, Mail, Camera, CheckCircle, AlertTriangle, 
+  ChevronRight, ChevronLeft, Mic, Save, FileText, ClipboardCheck, 
+  Building2, Loader2, Wifi, UserPlus, HardHat, Search, ArrowRight, 
+  Link as LinkIcon, Lock, Unlock, TestTube, Edit2, UploadCloud, X, 
+  Image as ImageIcon, DollarSign, FileCheck, Briefcase, Menu, Plus,
+  Sparkles, FolderPlus, Trash2
 } from 'lucide-react';
 
-// --- FIREBASE IMPORTS ---
 import { initializeApp } from "firebase/app";
-import { 
-  getAuth, 
-  signInAnonymously, 
-  signInWithCustomToken,
-  onAuthStateChanged 
-} from "firebase/auth";
-import { 
-  getFirestore, 
-  collection, 
-  addDoc, 
-  updateDoc, 
-  doc, 
-  onSnapshot, 
-  query 
-} from "firebase/firestore";
+import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "firebase/auth";
+import { getFirestore, collection, addDoc, updateDoc, doc, onSnapshot, query } from "firebase/firestore";
 
-// --- CONFIGURATION ---
-// 1. FIREBASE
-  const firebaseConfig = {
-    apiKey: "AIzaSyDzV7uc4fBmvjdTF67g6bsFElyfyCVMzsc",
-    authDomain: "sales-walkthrough.firebaseapp.com",
-    projectId: "sales-walkthrough",
-    storageBucket: "sales-walkthrough.firebasestorage.app",
-    messagingSenderId: "413932370308",
-    appId: "1:413932370308:web:5827e29ade91fbfefa05d1"
-  };
+// ==========================================
+// CONFIGURATION SECTION
+// ==========================================
 
-  // 2. YOU MUST HAVE THESE 3 LINES TO FIX THE ERROR:
-const app = initializeApp(firebaseConfig); // <--- This line uses 'initializeApp'
+const firebaseConfig = {
+  apiKey: "AIzaSyDzV7uc4fBmvjdTF67g6bsFElyfyCVMzsc",
+  authDomain: "sales-walkthrough.firebaseapp.com",
+  projectId: "sales-walkthrough",
+  storageBucket: "sales-walkthrough.firebasestorage.app",
+  messagingSenderId: "413932370308",
+  appId: "1:413932370308:web:5827e29ade91fbfefa05d1"
+};
+
+// 1. ZAPIER - LEAD CREATION (Intake Form -> Contractor Foreman)
+const ZAPIER_LEAD_WEBHOOK_URL = "https://hooks.zapier.com/hooks/catch/25601836/ukvgzxm/"; 
+
+// 2. ZAPIER - DRIVE UPLOAD (Walkthrough -> Google Drive)
+const ZAPIER_DRIVE_WEBHOOK_URL = "https://hooks.zapier.com/hooks/catch/25601836/ufb2iwb/"; 
+
+// 3. GEMINI AI (For Writing the "Doc")
+// Get a free key at https://aistudio.google.com/app/apikey
+const GEMINI_API_KEY = "AIzaSyDpwgQTcCqpWpsBWW1N4LvYSx58eSpKAxI"; 
+
+const appId = "lc-custom-sales"; 
+
+// ==========================================
+// UTILITIES
+// ==========================================
+
+const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
-const appId = "lc-custom-sales";
 
-// 2. ZAPIER (REPLACE THIS WITH YOUR ACTUAL WEBHOOK URL)
-// Create a Zap -> Trigger: Webhooks by Zapier (Catch Hook) -> Copy URL
-const ZAPIER_WEBHOOK_URL = "https://hooks.zapier.com/hooks/catch/25601836/ukvgzxm/"; 
+const compressImage = (file) => {
+    return new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.readAsDataURL(file);
+        reader.onload = (event) => {
+            const img = new Image();
+            img.src = event.target.result;
+            img.onload = () => {
+                const canvas = document.createElement('canvas');
+                const MAX_WIDTH = 800;
+                const scaleSize = MAX_WIDTH / img.width;
+                canvas.width = MAX_WIDTH;
+                canvas.height = img.height * scaleSize;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                resolve(canvas.toDataURL('image/jpeg', 0.7)); 
+            };
+        };
+    });
+};
 
-/ --- SUB-COMPONENTS --- /
+const dataURItoBlob = (dataURI) => {
+  try {
+    const byteString = atob(dataURI.split(',')[1]);
+    const mimeString = dataURI.split(',')[0].split(':')[1].split(';')[0];
+    const ab = new ArrayBuffer(byteString.length);
+    const ia = new Uint8Array(ab);
+    for (let i = 0; i < byteString.length; i++) {
+      ia[i] = byteString.charCodeAt(i);
+    }
+    return new Blob([ab], {type: mimeString});
+  } catch (e) { return null; }
+};
 
-// 1. STAFF LOGIN GATE
+// --- REAL GEMINI AI INTEGRATION (DYNAMIC PHOTOS) ---
+const generateEstimateWithGemini = async (photosArray, scopeNotes) => {
+    if (!GEMINI_API_KEY || GEMINI_API_KEY.includes("YOUR_GEMINI")) {
+        console.warn("No Gemini Key provided. Using Mock Data.");
+        return null; // Fallback to mock
+    }
+
+    const inlineDataParts = photosArray.map(p => ({
+        inlineData: {
+            mimeType: "image/jpeg",
+            data: p.data.split(",")[1]
+        }
+    }));
+
+    const prompt = `
+    You are an expert construction estimator. I have provided ${photosArray.length} photos of the site and the following scope notes from the salesman: "${scopeNotes}".
+    
+    Analyze ALL photos to identify construction requirements (demolition, framing, finishes, electrical, etc.).
+    
+    Create a detailed response in strict JSON format:
+    {
+      "summary": "A detailed Scope of Work paragraph describing the project...",
+      "total": 0,
+      "divisions": [
+        { "code": "01", "name": "GENERAL", "items": [{ "task": "Task Name", "desc": "Description" }] }
+        // Add divisions as needed based on photos
+      ]
+    }
+    Return ONLY valid JSON.
+    `;
+
+    try {
+        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ contents: [{ parts: [{ text: prompt }, ...inlineDataParts] }] })
+        });
+        const data = await response.json();
+        const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (!text) throw new Error("No text returned from Gemini");
+        const jsonStr = text.replace(/```json/g, '').replace(/```/g, '').trim();
+        return JSON.parse(jsonStr);
+    } catch (e) {
+        console.error("Gemini Error:", e);
+        return null;
+    }
+};
+
+// --- UI COMPONENTS ---
+
+const Button = ({ children, onClick, disabled, variant = "primary", className = "" }) => {
+  const base = "w-full py-4 rounded-full font-bold transition-all active:scale-95 disabled:opacity-50 disabled:active:scale-100 flex items-center justify-center gap-2";
+  const styles = {
+    primary: "bg-neutral-900 text-white shadow-xl shadow-neutral-200",
+    secondary: "bg-white text-neutral-900 border border-neutral-200 shadow-sm",
+    ghost: "bg-transparent text-neutral-500 hover:text-neutral-900",
+    danger: "bg-red-50 text-red-600 border border-red-100"
+  };
+  return <button onClick={onClick} disabled={disabled} className={`${base} ${styles[variant]} ${className}`}>{children}</button>;
+};
+
+const MinimalInput = ({ label, value, onChange, placeholder, type = "text" }) => (
+  <div className="group">
+    <label className="block text-xs font-bold text-neutral-400 uppercase tracking-widest mb-1 group-focus-within:text-neutral-900 transition-colors">{label}</label>
+    <input 
+      type={type} 
+      value={value} 
+      onChange={onChange} 
+      placeholder={placeholder}
+      className="w-full py-3 bg-transparent border-b border-neutral-200 focus:border-neutral-900 outline-none transition-colors text-lg text-neutral-800 placeholder-neutral-300 font-medium"
+    />
+  </div>
+);
+
+const MinimalArea = ({ label, value, onChange, placeholder }) => (
+  <div className="group">
+    <label className="block text-xs font-bold text-neutral-400 uppercase tracking-widest mb-2 group-focus-within:text-neutral-900 transition-colors">{label}</label>
+    <textarea 
+      rows={4}
+      value={value} 
+      onChange={onChange} 
+      placeholder={placeholder}
+      className="w-full p-0 bg-transparent border-b border-neutral-200 focus:border-neutral-900 outline-none transition-colors text-lg text-neutral-800 placeholder-neutral-300 font-medium resize-none"
+    />
+  </div>
+);
+
+// --- VIEW COMPONENTS ---
+
 const StaffLogin = ({ onLogin, onCancel }) => {
   const [passcode, setPasscode] = useState("");
-  const [error, setError] = useState(false);
   const [loading, setLoading] = useState(false);
-
-  const handleLogin = (e) => {
-    e.preventDefault();
-    setLoading(true);
-    setTimeout(() => {
-      if (passcode === "1234") {
-        onLogin();
-      } else {
-        setError(true);
-        setPasscode("");
-      }
-      setLoading(false);
-    }, 800);
-  };
-
+  const handleLogin = (e) => { e.preventDefault(); setLoading(true); setTimeout(() => { if (passcode === "1234") onLogin(); else setPasscode(""); setLoading(false); }, 800); };
   return (
-    <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-center p-6 animate-in fade-in zoom-in duration-300">
-      <div className="w-full max-w-sm bg-white rounded-2xl shadow-2xl overflow-hidden">
-        <div className="bg-amber-500 p-6 text-center">
-          <div className="w-16 h-16 bg-white/20 rounded-full mx-auto flex items-center justify-center mb-2 backdrop-blur-sm">
-            <Lock className="text-slate-900" size={32} />
-          </div>
-          <h2 className="text-2xl font-black text-slate-900">STAFF ACCESS</h2>
-          <p className="text-slate-900/80 font-medium">Secured Client Files</p>
-        </div>
-        <form onSubmit={handleLogin} className="p-8 space-y-6">
-          <div>
-             <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Enter Access Code</label>
-             <input 
-               type="password" 
-               inputMode="numeric"
-               autoFocus
-               className={`w-full p-4 text-center text-3xl font-bold tracking-widest border-2 rounded-xl focus:ring-4 focus:ring-amber-500/20 outline-none transition-all ${error ? 'border-red-500 bg-red-50 text-red-600' : 'border-slate-200 text-slate-800'}`}
-               placeholder="••••"
-               maxLength={4}
-               value={passcode}
-               onChange={(e) => { setError(false); setPasscode(e.target.value); }}
-             />
-             {error && <p className="text-red-500 text-sm font-bold text-center mt-2 animate-pulse">Incorrect Access Code</p>}
-          </div>
-          <button 
-            disabled={loading || passcode.length < 4}
-            type="submit" 
-            className="w-full py-4 bg-slate-900 text-white font-bold rounded-xl shadow-lg hover:bg-slate-800 active:scale-95 transition-all flex justify-center items-center gap-2"
-          >
-            {loading ? <Loader2 className="animate-spin" /> : "Unlock Dashboard"}
-          </button>
-        </form>
-        <div className="bg-slate-50 p-4 text-center border-t border-slate-100">
-          <button onClick={onCancel} className="text-slate-500 font-bold text-sm hover:text-slate-800">Cancel / Return Home</button>
-        </div>
+    <div className="min-h-screen bg-neutral-50 flex flex-col items-center justify-center p-8">
+      <div className="w-full max-w-sm space-y-8">
+        <div className="text-center"><h2 className="text-3xl font-light text-neutral-900 mb-2">Staff Access</h2><p className="text-neutral-400">Enter your secure passcode</p></div>
+        <form onSubmit={handleLogin} className="space-y-8"><input type="password" inputMode="numeric" autoFocus className="w-full p-4 text-center text-4xl font-light tracking-[1em] border-b-2 border-neutral-200 focus:border-neutral-900 outline-none bg-transparent transition-all" placeholder="••••" maxLength={4} value={passcode} onChange={(e) => setPasscode(e.target.value)} /><Button disabled={loading} type="submit">{loading ? <Loader2 className="animate-spin" /> : "Unlock Portal"}</Button></form>
+        <button onClick={onCancel} className="w-full text-center text-sm font-bold text-neutral-400 uppercase tracking-widest hover:text-neutral-600">Cancel</button>
       </div>
-      <p className="text-slate-500 mt-8 text-sm">Demo Access Code: <span className="font-mono bg-slate-800 text-white px-2 py-1 rounded">1234</span></p>
     </div>
   );
 };
 
-// 2. LEAD INTAKE FORM (The "Customer" View)
 const IntakeForm = ({ onCancel, onSubmit }) => {
   const [formData, setFormData] = useState({
-    clientName: "",
-    email: "",
-    phone: "",
-    address: "",
-    mailingAddress: "",
-    projectType: "New Build",
-    vision: "",
-    budget: "",
-    source: "",
-    contactMethod: "Email"
+    clientName: "", email: "", phone: "", address: "", mailingAddress: "", 
+    projectType: "New Build", vision: "", budget: "", source: "", contactMethod: "Email"
   });
   const [isTestMode, setIsTestMode] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -150,584 +194,333 @@ const IntakeForm = ({ onCancel, onSubmit }) => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setIsSubmitting(true);
-    
-    // Auto-Split Name Logic for Contractor Foreman
     const nameParts = formData.clientName.trim().split(' ');
     const firstName = nameParts[0] || "Unknown";
-    // Join the rest of the name parts for Last Name, or default to "Client" if none
     const lastName = nameParts.length > 1 ? nameParts.slice(1).join(' ') : "Client";
-    
     const finalClientName = isTestMode ? `[TEST] - ${formData.clientName}` : formData.clientName;
-    
-    const payload = {
-      ...formData,
-      firstName: firstName, // Explicitly send first name
-      lastName: lastName,   // Explicitly send last name
-      clientName: finalClientName,
-      status: "Ready for Walkthrough",
-      dateCreated: new Date().toISOString(),
-      isTest: isTestMode
-    };
+    const payload = { ...formData, firstName, lastName, clientName: finalClientName, status: "Ready for Walkthrough", dateCreated: new Date().toISOString(), isTest: isTestMode };
 
     try {
-      // Send to Zapier
-      if (ZAPIER_WEBHOOK_URL && ZAPIER_WEBHOOK_URL.includes('hooks.zapier.com')) {
-         try {
-           await fetch(ZAPIER_WEBHOOK_URL, {
-             method: 'POST',
-             body: JSON.stringify(payload)
-           });
-           console.log("Zapier Payload Sent");
-         } catch (zapError) {
-           console.warn("Zapier connection failed (ignoring for app flow):", zapError);
-         }
+      if (ZAPIER_LEAD_WEBHOOK_URL && ZAPIER_LEAD_WEBHOOK_URL.includes('hooks.zapier.com')) {
+         await fetch(ZAPIER_LEAD_WEBHOOK_URL, { method: 'POST', body: JSON.stringify(payload) }).catch(console.error);
       }
-
-      // Save to Firebase
       await onSubmit(payload);
-
     } catch (error) {
-      console.error("Error submitting form:", error);
-      alert("Error submitting. Please try again.");
+      alert("Error submitting.");
       setIsSubmitting(false);
     }
   };
 
-  const updateField = (field, value) => {
-    setFormData(prev => ({ ...prev, [field]: value }));
-  };
+  const updateField = (field, value) => setFormData(prev => ({ ...prev, [field]: value }));
 
   return (
-    <div className="min-h-screen bg-slate-50 p-4 md:p-8 animate-in fade-in slide-in-from-bottom-8">
-      <div className="max-w-2xl mx-auto bg-white rounded-xl shadow-xl overflow-hidden border border-slate-200">
-        <div className="bg-slate-900 p-8 text-white text-center relative overflow-hidden">
-          {isTestMode && (
-            <div className="absolute top-0 left-0 right-0 bg-amber-400 text-slate-900 text-xs font-bold py-1">
-              TEST MODE ACTIVE - DATA WILL BE FLAGGED
-            </div>
-          )}
-          <div className="w-16 h-16 bg-amber-500 rounded-xl mx-auto flex items-center justify-center mb-4 shadow-lg text-slate-900 font-black text-2xl">LC</div>
-          <h2 className="text-3xl font-bold mb-2">Start Your Project</h2>
-          <p className="text-slate-400">Tell us about your vision below.</p>
+    <div className="min-h-screen bg-neutral-50 flex flex-col">
+      <div className="sticky top-0 z-20 bg-neutral-50/80 backdrop-blur-md px-6 py-4 border-b border-neutral-100 flex justify-between items-center">
+         <button onClick={onCancel} className="p-2 -ml-2 text-neutral-400 hover:text-neutral-900"><X size={24}/></button>
+         <h2 className="font-bold text-sm tracking-widest uppercase">New Client Intake</h2>
+         <div className="w-8"></div>
+      </div>
+
+      <div className="flex-1 p-6 max-w-lg mx-auto w-full">
+        <div className="mb-8">
+            <h1 className="text-3xl font-light text-neutral-900 mb-2">Let's start the project.</h1>
+            <p className="text-neutral-400">Please fill in the client details below.</p>
         </div>
-        
-        <form onSubmit={handleSubmit} className="p-6 md:p-8 space-y-6">
-          <div className="flex items-center justify-end">
-            <label className="flex items-center gap-2 cursor-pointer bg-slate-100 px-3 py-1 rounded-full border border-slate-200 hover:bg-slate-200 transition-colors">
-              <input 
-                type="checkbox" 
-                checked={isTestMode} 
-                onChange={e => setIsTestMode(e.target.checked)}
-                className="rounded text-amber-500 focus:ring-amber-500" 
-              />
-              <span className="text-xs font-bold text-slate-600 flex items-center gap-1">
-                <TestTube size={12}/> {isTestMode ? "Test Mode ON" : "Test Mode OFF"}
-              </span>
-            </label>
-          </div>
 
-          {/* Contact Info */}
-          <div className="space-y-4">
-            <h3 className="text-lg font-bold text-slate-900 border-b pb-2">Contact Information</h3>
-            <div>
-              <label className="block text-sm font-bold text-slate-700 mb-1">Full Name <span className="text-red-500">*</span></label>
-              <input required type="text" className="w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Jane Doe" 
-                value={formData.clientName} onChange={e => updateField('clientName', e.target.value)} />
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-bold text-slate-700 mb-1">Email address <span className="text-red-500">*</span></label>
-                <input required type="email" className="w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="name@example.com"
-                  value={formData.email} onChange={e => updateField('email', e.target.value)} />
-              </div>
-              <div>
-                <label className="block text-sm font-bold text-slate-700 mb-1">Phone Number <span className="text-red-500">*</span></label>
-                <div className="relative">
-                  <span className="absolute left-3 top-3.5 text-slate-400 text-sm font-medium">(+1)</span>
-                  <input required type="tel" className="w-full pl-12 p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="555-0123"
-                    value={formData.phone} onChange={e => updateField('phone', e.target.value)} />
-                </div>
-              </div>
-            </div>
-            <div>
-              <label className="block text-sm font-bold text-slate-700 mb-1">Preferred Contact Method <span className="text-red-500">*</span></label>
-              <div className="flex gap-4">
-                {['Email', 'Phone', 'Text'].map(method => (
-                  <label key={method} className="flex items-center gap-2 cursor-pointer">
-                    <input 
-                      type="radio" 
-                      name="contactMethod"
-                      value={method}
-                      checked={formData.contactMethod === method}
-                      onChange={e => updateField('contactMethod', e.target.value)}
-                      className="w-4 h-4 text-blue-600 focus:ring-blue-500"
-                    />
-                    <span className="text-slate-700">{method}</span>
-                  </label>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          {/* Locations & Vision */}
-          <div className="space-y-4 pt-4">
-            <h3 className="text-lg font-bold text-slate-900 border-b pb-2">Project Vision</h3>
-             <div>
-              <label className="block text-sm font-bold text-slate-700 mb-1">What's the project address? <span className="text-red-500">*</span></label>
-              <input required type="text" className="w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="123 Project St..."
-                value={formData.address} onChange={e => updateField('address', e.target.value)} />
-            </div>
-            <div>
-              <label className="block text-sm font-bold text-slate-700 mb-1">Type Of Project <span className="text-red-500">*</span></label>
-              <select className="w-full p-3 border border-slate-300 rounded-lg bg-white focus:ring-2 focus:ring-blue-500 outline-none"
-                value={formData.projectType} onChange={e => updateField('projectType', e.target.value)}>
-                <option>New Build</option>
-                <option>Renovation</option>
-                <option>Addition</option>
-                <option>Repair/Maintenance</option>
-                <option>Other</option>
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-bold text-slate-700 mb-1">Estimated Budget <span className="text-slate-400 font-normal">(Optional)</span></label>
-              <select className="w-full p-3 border border-slate-300 rounded-lg bg-white focus:ring-2 focus:ring-blue-500 outline-none"
-                value={formData.budget} onChange={e => updateField('budget', e.target.value)}>
-                <option value="">Select a range</option>
-                <option>$5k - $10k</option>
-                <option>$10k - $25k</option>
-                <option>$25k - $50k</option>
-                <option>$50k - $100k</option>
-                <option>$100k+</option>
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-bold text-slate-700 mb-1">Tell Us About Your Vision <span className="text-red-500">*</span></label>
-              <textarea 
-                required 
-                className="w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" 
-                rows="5" 
-                maxLength={2000}
-                placeholder="I want to update my kitchen with modern cabinets..."
-                value={formData.vision} 
-                onChange={e => updateField('vision', e.target.value)}
-              ></textarea>
-              <div className="text-right text-xs text-slate-400 mt-1">{formData.vision.length}/2000</div>
-            </div>
-          </div>
-
-          <div className="pt-6 flex gap-3">
-            <button type="button" onClick={onCancel} className="px-6 py-3 text-slate-600 font-bold hover:bg-slate-100 rounded-lg">Cancel</button>
-            <button disabled={isSubmitting} type="submit" className="flex-1 py-3 bg-slate-900 text-white font-bold rounded-lg shadow-lg hover:bg-slate-800 flex justify-center items-center gap-2 transition-all active:scale-95">
-              {isSubmitting ? <Loader2 className="animate-spin" /> : <>Submit Inquiry <ArrowRight size={18}/></>}
-            </button>
+        <form onSubmit={handleSubmit} className="space-y-8">
+          <div className="flex justify-end"><label className="flex items-center gap-2 cursor-pointer opacity-50 hover:opacity-100 transition-opacity"><input type="checkbox" checked={isTestMode} onChange={e => setIsTestMode(e.target.checked)} className="rounded text-amber-500" /><span className="text-xs font-bold uppercase tracking-wider text-neutral-600">Test Mode</span></label></div>
+          
+          <MinimalInput label="Full Name" placeholder="Jane Doe" value={formData.clientName} onChange={e => updateField('clientName', e.target.value)} />
+          <MinimalInput label="Email Address" type="email" placeholder="jane@example.com" value={formData.email} onChange={e => updateField('email', e.target.value)} />
+          <MinimalInput label="Project Address" placeholder="123 Ocean Dr, FL" value={formData.address} onChange={e => updateField('address', e.target.value)} />
+          <MinimalArea label="Project Vision" placeholder="Describe the dream outcome..." value={formData.vision} onChange={e => updateField('vision', e.target.value)} />
+          
+          <div className="pt-8">
+            <Button disabled={isSubmitting} type="submit">{isSubmitting ? <Loader2 className="animate-spin" /> : "Submit Inquiry"}</Button>
           </div>
         </form>
       </div>
-      <p className="text-center text-slate-400 text-xs mt-6 pb-6">Secure Form • Live Database Connection</p>
     </div>
   );
 };
 
-// 3. WALKTHROUGH FLOW (The "Salesman" View)
 const WalkthroughFlow = ({ lead, onBack, onComplete }) => {
   const [step, setStep] = useState(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [statusMsg, setStatusMsg] = useState("");
+  const [photos, setPhotos] = useState([]); 
   
   const [formData, setFormData] = useState({
     ...lead,
-    decisionMakers: lead.decisionMakers || "",
-    parking: lead.parking || "",
-    access: lead.access || "",
+    projectEstimateName: `${lead.clientName} - Estimate`, 
     budget: lead.budget || "",
     timeline: lead.timeline || "",
-    scopeNotes: lead.scopeNotes || "",
-    photos: lead.photos || { exterior: false, interior: false, detail: false, systems: false },
-    nextStepDate: lead.nextStepDate || "",
-    leadTemperature: lead.leadTemperature || ""
+    scopeNotes: lead.scopeNotes || ""
   });
 
   const updateField = (f, v) => setFormData(p => ({ ...p, [f]: v }));
-  const updatePhoto = (t) => setFormData(p => ({ ...p, photos: { ...p.photos, [t]: !p.photos[t] } }));
-
-  // --- STEPS ---
-  const renderStep = () => {
-    switch(step) {
-      case 0: // Pre-Walkthrough Review
-        return (
-          <div className="space-y-6 animate-in slide-in-from-right">
-             <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
-                <div className="flex items-start justify-between mb-4">
-                  <div>
-                    <h2 className="text-2xl font-bold text-slate-900">{lead.clientName}</h2>
-                    <p className="text-slate-500 flex items-center gap-1 mt-1"><MapPin size={16}/> {lead.address}</p>
-                  </div>
-                  <div className="w-10 h-10 bg-green-100 rounded-full flex items-center justify-center text-green-700">
-                    <UserPlus size={20}/>
-                  </div>
-                </div>
-                <div className="space-y-3 pt-4 border-t border-slate-100">
-                   <div className="flex gap-3">
-                      <a href={`tel:${lead.phone}`} className="flex-1 py-2 bg-slate-100 text-slate-700 rounded-lg flex items-center justify-center gap-2 text-sm font-bold">
-                        <Phone size={16}/> Call
-                      </a>
-                      <a href={`mailto:${lead.email}`} className="flex-1 py-2 bg-slate-100 text-slate-700 rounded-lg flex items-center justify-center gap-2 text-sm font-bold">
-                        <Mail size={16}/> Email
-                      </a>
-                   </div>
-                   <div className="bg-amber-50 p-4 rounded-lg text-amber-900 text-sm mt-4 space-y-2">
-                      <div><strong>Vision:</strong> "{lead.vision}"</div>
-                      {lead.budget && <div><strong>Initial Budget:</strong> {lead.budget}</div>}
-                   </div>
-                </div>
-             </div>
-             <p className="text-center text-slate-500 text-sm">Review this before exiting your vehicle.</p>
-          </div>
-        );
-      case 1: // Scope
-        return (
-          <div className="space-y-6 animate-in slide-in-from-right">
-            <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
-               <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2"><Building2 className="text-blue-600"/> Estimate Prep</h3>
-               <div className="grid grid-cols-2 gap-4 mb-4">
-                 <div>
-                   <label className="text-xs font-bold text-slate-500 uppercase">Target Budget</label>
-                   <input type="text" placeholder="$0" className="w-full p-3 bg-slate-50 border rounded-lg font-bold" 
-                     value={formData.budget} onChange={e => updateField('budget', e.target.value)} />
-                 </div>
-                 <div>
-                   <label className="text-xs font-bold text-slate-500 uppercase">Timeline</label>
-                   <input type="text" placeholder="By when?" className="w-full p-3 bg-slate-50 border rounded-lg font-bold"
-                     value={formData.timeline} onChange={e => updateField('timeline', e.target.value)} />
-                 </div>
-               </div>
-               <div>
-                  <label className="flex justify-between text-sm font-bold text-slate-600 mb-2">
-                    <span>Scope of Work</span>
-                    <span className="text-blue-600 flex items-center gap-1 text-xs"><Mic size={12}/> Dictate</span>
-                  </label>
-                  <textarea rows={6} className="w-full p-4 border rounded-lg text-lg leading-relaxed focus:ring-2 focus:ring-blue-500"
-                    placeholder="Describe the work to be estimated..."
-                    value={formData.scopeNotes} onChange={e => updateField('scopeNotes', e.target.value)}></textarea>
-               </div>
-            </div>
-            <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
-               <h3 className="font-bold text-slate-800 mb-3">Site Logistics</h3>
-               <div className="grid grid-cols-2 gap-3">
-                 <select className="p-3 border rounded-lg bg-white" value={formData.parking} onChange={e => updateField('parking', e.target.value)}>
-                   <option value="">Parking...</option>
-                   <option>Driveway</option>
-                   <option>Street</option>
-                   <option>Difficult</option>
-                 </select>
-                 <select className="p-3 border rounded-lg bg-white" value={formData.access} onChange={e => updateField('access', e.target.value)}>
-                   <option value="">Access...</option>
-                   <option>Front Door</option>
-                   <option>Side Gate</option>
-                   <option>Garage</option>
-                 </select>
-               </div>
-            </div>
-          </div>
-        );
-      case 2: // Photos
-        return (
-          <div className="space-y-6 animate-in slide-in-from-right">
-             <div className="text-center"><h2 className="text-xl font-bold">Photo Checklist</h2></div>
-             <div className="grid grid-cols-2 gap-4">
-                {['exterior', 'interior', 'detail', 'systems'].map(k => (
-                  <button key={k} onClick={() => updatePhoto(k)} className={`p-6 rounded-xl border-2 flex flex-col items-center gap-2 ${formData.photos[k] ? 'bg-green-50 border-green-500 text-green-700' : 'bg-white border-dashed text-slate-400'}`}>
-                    {formData.photos[k] ? <CheckCircle size={32}/> : <Camera size={32}/>}
-                    <span className="capitalize font-semibold">{k}</span>
-                  </button>
-                ))}
-             </div>
-          </div>
-        );
-      case 3: // Audit
-        return (
-           <div className="space-y-6 animate-in slide-in-from-right">
-             <div className="bg-slate-900 text-white p-6 rounded-xl">
-                <h2 className="text-xl font-bold mb-4">Driveway Audit</h2>
-                <label className="text-xs font-bold text-slate-400 uppercase">Next Activity</label>
-                <input type="text" placeholder="e.g. Send Quote by Friday" className="w-full p-3 bg-slate-800 border-slate-700 border rounded-lg text-white mb-4"
-                  value={formData.nextStepDate} onChange={e => updateField('nextStepDate', e.target.value)} />
-                <label className="text-xs font-bold text-slate-400 uppercase">Lead Temp</label>
-                <div className="flex gap-2 mt-1">
-                   {['Cold', 'Warm', 'Hot'].map(t => (
-                     <button key={t} onClick={() => updateField('leadTemperature', t)} className={`flex-1 py-2 rounded border font-bold ${formData.leadTemperature === t ? 'bg-amber-500 border-amber-500' : 'border-slate-600 text-slate-400'}`}>{t}</button>
-                   ))}
-                </div>
-             </div>
-           </div>
-        );
-      default: return null;
+  
+  const handleAddPhoto = async (e) => {
+    const file = e.target.files[0];
+    if (file) { 
+        const compressedBase64 = await compressImage(file); 
+        const newPhoto = { id: Date.now(), data: compressedBase64, name: `Photo ${photos.length + 1}` };
+        setPhotos(prev => [...prev, newPhoto]);
     }
   };
+
+  const removePhoto = (id) => setPhotos(prev => prev.filter(p => p.id !== id));
 
   const handleSync = async () => {
     setIsSubmitting(true);
-    try {
-      await onComplete({
-        ...formData,
-        status: "Estimate Pending"
-      });
-    } catch (error) {
-      console.error("Error saving walkthrough:", error);
-      alert("Failed to save walkthrough. Please try again.");
-      setIsSubmitting(false);
+    let aiEstimate = null;
+
+    // STEP 1: AI GENERATION (Run this FIRST so the text file is smart)
+    setStatusMsg(`AI Analyzing ${photos.length} photos...`);
+    
+    // Call Gemini
+    const realAiResult = await generateEstimateWithGemini(photos, formData.scopeNotes);
+    
+    if (realAiResult) {
+        aiEstimate = { ...realAiResult, dateGenerated: new Date().toISOString(), status: "Draft" };
+    } else {
+        // Fallback
+        aiEstimate = {
+            total: 0,
+            summary: "AI could not generate estimate. See raw notes.",
+            divisions: [],
+            dateGenerated: new Date().toISOString(), status: "Draft"
+        };
     }
+
+    // STEP 2: PREPARE THE SMART SCOPE DOCUMENT
+    // Now we can include the AI's summary inside the text file!
+    const aiSummary = aiEstimate.summary || "No AI summary available.";
+    const aiDivisions = aiEstimate.divisions ? aiEstimate.divisions.map(d => `DIV ${d.code} - ${d.name}:\n${d.items.map(i => ` - ${i.task}: ${i.desc}`).join('\n')}`).join('\n\n') : "";
+
+    const fullDocumentContent = `
+CLIENT: ${formData.clientName}
+PROJECT: ${formData.projectEstimateName}
+DATE: ${new Date().toLocaleDateString()}
+TIMELINE: ${formData.timeline}
+BUDGET: ${formData.budget}
+
+--- SALESMAN NOTES ---
+VISION:
+${formData.vision}
+
+WALKTHROUGH NOTES:
+${formData.scopeNotes}
+
+--- AI GENERATED SCOPE OF WORK ---
+SUMMARY:
+${aiSummary}
+
+DETAILED BREAKDOWN:
+${aiDivisions}
+`;
+
+    // STEP 3: UPLOAD TO DRIVE (ZAPIER)
+    setStatusMsg("Uploading Smart Doc & Photos...");
+    try {
+       if (ZAPIER_DRIVE_WEBHOOK_URL && ZAPIER_DRIVE_WEBHOOK_URL.includes('hooks.zapier.com')) {
+          const data = new FormData();
+          
+          data.append("clientName", formData.clientName);
+          data.append("folderName", `${formData.clientName} - ESTIMATE`);
+          
+          // Attach the Smart Document
+          const scopeBlob = new Blob([fullDocumentContent], { type: 'text/plain' });
+          data.append('scope_document', scopeBlob, `Scope of Work.txt`);
+
+          // Attach Photos
+          photos.forEach((photo, index) => {
+            const blob = dataURItoBlob(photo.data);
+            if (blob) {
+                data.append(`photo_${index + 1}`, blob, `site_photo_${index + 1}.jpg`);
+            }
+          });
+          
+          await fetch(ZAPIER_DRIVE_WEBHOOK_URL, { method: 'POST', body: data }).catch(console.error);
+       }
+    } catch (error) { console.error("Zapier Upload Failed", error); }
+
+    // STEP 4: SAVE TO APP DATABASE
+    const finalPayload = { 
+        ...formData, 
+        photos: photos.map(p => p.data), 
+        status: "Needs Estimate Review", 
+        aiEstimate 
+    };
+    await onComplete(finalPayload);
   };
 
+  const steps = [ { title: "Project Setup", subtitle: "Name & Basics" }, { title: "Scope & Vision", subtitle: "Details & Budget" }, { title: "Site Photos", subtitle: "Capture Context" }, { title: "Review", subtitle: "Confirm & Submit" } ];
+
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col">
-      <header className="bg-slate-900 text-white p-4 sticky top-0 z-10 flex justify-between items-center">
-        <button onClick={onBack} className="text-slate-400 hover:text-white"><ChevronLeft/></button>
-        <span className="font-bold">Walkthrough: {lead.clientName}</span>
-        <div className="w-6"></div>
-      </header>
-      <main className="flex-1 p-4 overflow-y-auto pb-24">
-        {renderStep()}
+    <div className="min-h-screen bg-neutral-50 flex flex-col font-sans">
+      <div className="sticky top-0 z-20 bg-neutral-50/90 backdrop-blur-md px-6 py-4 border-b border-neutral-100 flex items-center justify-between">
+         <button onClick={onBack} className="p-2 -ml-2 text-neutral-400 hover:text-neutral-900"><ChevronLeft/></button>
+         <div className="flex flex-col items-center"><span className="text-[10px] font-bold uppercase tracking-widest text-neutral-400">Step {step + 1} of 4</span><span className="text-sm font-semibold text-neutral-900">{steps[step].title}</span></div>
+         <div className="w-8"></div>
+      </div>
+
+      <main className="flex-1 p-6 pb-32 max-w-lg mx-auto w-full overflow-y-auto">
+        <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+            {step === 0 && (
+                <div className="space-y-8">
+                    <div className="p-6 bg-white rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-neutral-100"><MinimalInput label="Project Name" value={formData.projectEstimateName} onChange={e => updateField('projectEstimateName', e.target.value)} /></div>
+                    <div className="p-6 bg-amber-50 rounded-3xl border border-amber-100"><h4 className="text-amber-900/50 text-xs font-bold uppercase tracking-wider mb-2">Client Vision</h4><p className="text-amber-900 text-lg leading-relaxed font-medium">"{lead.vision}"</p></div>
+                </div>
+            )}
+            {step === 1 && (
+                <div className="space-y-8">
+                    <div className="p-6 bg-white rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-neutral-100 space-y-6"><MinimalInput label="Target Budget" placeholder="$" value={formData.budget} onChange={e => updateField('budget', e.target.value)} /><MinimalInput label="Desired Timeline" placeholder="e.g. Fall 2025" value={formData.timeline} onChange={e => updateField('timeline', e.target.value)} /></div>
+                    <div className="p-6 bg-white rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-neutral-100"><MinimalArea label="Scope Notes (Voice Dictation)" placeholder="Tap microphone to dictate..." value={formData.scopeNotes} onChange={e => updateField('scopeNotes', e.target.value)} /><div className="mt-4 flex gap-2 text-neutral-400 text-xs font-medium items-center"><Mic size={14}/> <span>Voice dictation recommended for detail.</span></div></div>
+                </div>
+            )}
+            {step === 2 && (
+                <div className="space-y-6">
+                    <div className="flex items-center justify-between px-2">
+                        <span className="text-xs font-bold uppercase tracking-widest text-neutral-400">Gallery ({photos.length})</span>
+                    </div>
+                    
+                    <div className="grid grid-cols-2 gap-4">
+                        <div className="aspect-square rounded-3xl border-2 border-dashed border-neutral-300 hover:border-neutral-900 hover:bg-neutral-100 transition-all flex flex-col items-center justify-center relative overflow-hidden group">
+                             <input type="file" accept="image/*" capture="environment" onChange={handleAddPhoto} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"/>
+                             <div className="p-3 bg-neutral-900 text-white rounded-full mb-2 group-hover:scale-110 transition-transform"><Plus size={24}/></div>
+                             <span className="text-xs font-bold uppercase tracking-widest text-neutral-900">Add Photo</span>
+                        </div>
+                        {photos.map((photo) => (
+                            <div key={photo.id} className="aspect-square rounded-3xl relative overflow-hidden border border-neutral-100 shadow-sm bg-white">
+                                <img src={photo.data} alt="Site" className="absolute inset-0 w-full h-full object-cover" />
+                                <div className="absolute inset-0 bg-black/10"></div>
+                                <button onClick={() => removePhoto(photo.id)} className="absolute top-2 right-2 bg-red-500 text-white p-2 rounded-full shadow-lg active:scale-90 transition-transform"><Trash2 size={16}/></button>
+                                <div className="absolute bottom-2 left-2 right-2">
+                                    <span className="bg-black/50 backdrop-blur-md text-white text-[10px] font-bold px-2 py-1 rounded-full">{photo.name}</span>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
+            {step === 3 && (
+                <div className="space-y-6">
+                    <div className="bg-neutral-900 text-white p-8 rounded-3xl shadow-xl shadow-neutral-300">
+                        <h2 className="text-2xl font-light mb-6">Ready to Submit?</h2>
+                        <div className="space-y-4 text-sm text-neutral-400">
+                            <div className="flex justify-between border-b border-white/10 pb-3"><span>Folder Name</span> <span className="text-white font-medium">{formData.clientName} - ESTIMATE</span></div>
+                            <div className="flex justify-between border-b border-white/10 pb-3"><span>Total Photos</span> <span className="text-white font-medium">{photos.length} Attached</span></div>
+                        </div>
+                    </div>
+                    <div className="bg-purple-50 p-6 rounded-3xl border border-purple-100 flex items-start gap-4">
+                         <div className="p-2 bg-purple-100 rounded-full text-purple-600"><Sparkles size={20}/></div>
+                         <div><h4 className="font-bold text-purple-900 text-sm mb-1">AI-Powered Workflow</h4><p className="text-purple-700/70 text-xs leading-relaxed">Gemini will first analyze your photos to write the scope, THEN the app will upload that smart document to Drive.</p></div>
+                    </div>
+                </div>
+            )}
+        </div>
       </main>
-      <div className="fixed bottom-0 left-0 right-0 bg-white border-t p-4 flex gap-4 shadow-lg">
-        {step > 0 && <button onClick={() => setStep(s => s-1)} className="px-4 py-3 border rounded-lg"><ChevronLeft/></button>}
-        <button 
-          onClick={step === 3 ? handleSync : () => setStep(s => s+1)}
-          disabled={isSubmitting}
-          className={`flex-1 py-3 rounded-lg font-bold text-white flex justify-center items-center gap-2 ${step === 3 ? 'bg-green-600' : 'bg-blue-600'}`}
-        >
-          {isSubmitting ? <Loader2 className="animate-spin"/> : step === 3 ? "Sync to Estimate" : "Next"}
-          {step !== 3 && <ChevronRight/>}
-        </button>
+
+      <div className="fixed bottom-0 left-0 right-0 p-6 bg-gradient-to-t from-neutral-50 via-neutral-50 to-transparent z-20">
+         <div className="flex gap-4 max-w-lg mx-auto">
+            {step > 0 && <button onClick={() => setStep(s => s-1)} className="w-14 h-14 rounded-full bg-white border border-neutral-200 flex items-center justify-center shadow-lg shadow-neutral-200/50 active:scale-95 transition-transform"><ChevronLeft className="text-neutral-600"/></button>}
+            <button onClick={step === 3 ? handleSync : () => setStep(s => s+1)} disabled={isSubmitting} className={`flex-1 h-14 rounded-full font-bold text-sm tracking-widest uppercase flex items-center justify-center gap-2 shadow-xl active:scale-95 transition-all ${step === 3 ? 'bg-neutral-900 text-white shadow-neutral-400/50' : 'bg-white text-neutral-900 border border-neutral-200'}`}>
+                {isSubmitting ? <Loader2 className="animate-spin"/> : step === 3 ? "Generate Report" : "Next Step"}
+                {!isSubmitting && step !== 3 && <ArrowRight size={16}/>}
+            </button>
+         </div>
+         {isSubmitting && <div className="text-center text-xs font-bold text-neutral-400 mt-2 animate-pulse">{statusMsg}</div>}
       </div>
     </div>
   );
 };
 
-// 4. MAIN APP CONTROLLER
+const OfficeEstimateView = ({ lead, onBack }) => {
+  const estimate = lead.aiEstimate || {};
+  const total = estimate.total || 0;
+  const divisions = estimate.divisions || [];
+
+  return (
+    <div className="min-h-screen bg-neutral-100 flex flex-col font-sans text-neutral-900">
+      <div className="sticky top-0 z-20 bg-white/80 backdrop-blur-md border-b border-neutral-200 px-6 py-4 flex justify-between items-center">
+            <button onClick={onBack} className="p-2 -ml-2 rounded-full hover:bg-neutral-100"><ChevronLeft className="text-neutral-500"/></button>
+            <div className="text-center"><h1 className="text-sm font-bold uppercase tracking-widest">{lead.projectEstimateName}</h1><span className="text-[10px] font-bold text-green-600 bg-green-50 px-2 py-0.5 rounded-full border border-green-100">AI Generated</span></div>
+            <div className="w-8"></div>
+      </div>
+
+      <main className="flex-1 overflow-y-auto p-4 md:p-8">
+        <div className="max-w-3xl mx-auto space-y-6">
+            <div className="bg-white p-8 rounded-none md:rounded-xl shadow-sm border border-neutral-200 relative overflow-hidden">
+                <div className="absolute top-0 left-0 w-1 h-full bg-amber-400"></div>
+                <div className="flex justify-between items-start mb-4"><h3 className="text-xs font-bold text-neutral-400 uppercase tracking-widest">Executive Summary</h3><span className="text-2xl font-bold tracking-tight">${total.toLocaleString()}</span></div>
+                <p className="text-neutral-700 leading-relaxed text-lg font-light">{estimate.summary || "No summary generated yet."}</p>
+            </div>
+
+            <div className="space-y-2">
+                {divisions.map((div, idx) => (
+                    <div key={idx} className="bg-white rounded-xl border border-neutral-200 overflow-hidden">
+                        <div className="bg-neutral-50/50 px-6 py-4 border-b border-neutral-100 flex justify-between items-center"><span className="font-bold text-neutral-900 text-xs tracking-widest uppercase">Div {div.code} — {div.name}</span></div>
+                        <div className="divide-y divide-neutral-100">
+                            {div.items.map((item, i) => (
+                                <div key={i} className="p-6 hover:bg-neutral-50 transition-colors group">
+                                    <div className="flex justify-between items-start mb-2"><h4 className="font-semibold text-neutral-800">{item.task}</h4><button className="opacity-0 group-hover:opacity-100 p-2 text-neutral-400 hover:text-neutral-900 transition-all"><Edit2 size={14}/></button></div>
+                                    <p className="text-neutral-500 text-sm leading-relaxed">{item.desc}</p>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                ))}
+            </div>
+            <div className="flex gap-4 pt-8 pb-20"><Button variant="primary"><FileCheck size={18}/> Approve & Send</Button></div>
+        </div>
+      </main>
+    </div>
+  );
+};
+
 export default function WalkthroughApp() {
   const [view, setView] = useState('home'); 
   const [leads, setLeads] = useState([]);
   const [selectedLead, setSelectedLead] = useState(null);
-  const [lastSyncedData, setLastSyncedData] = useState(null);
-  
   const [user, setUser] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
-  const [isStaffAuthenticated, setIsStaffAuthenticated] = useState(false);
 
-  useEffect(() => {
-    const initAuth = async () => {
-      try {
-        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-          await signInWithCustomToken(auth, __initial_auth_token);
-        } else {
-          await signInAnonymously(auth);
-        }
-      } catch (err) {
-        console.error("Auth Error:", err);
-      }
-    };
-    initAuth();
-    const unsubscribeAuth = onAuthStateChanged(auth, (currentUser) => {
-      setUser(currentUser);
-      setAuthLoading(false);
-    });
-    return () => unsubscribeAuth();
-  }, []);
+  useEffect(() => { const initAuth = async () => { try { if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) await signInWithCustomToken(auth, __initial_auth_token); else await signInAnonymously(auth); } catch (e) {} }; initAuth(); return onAuthStateChanged(auth, (u) => { setUser(u); setAuthLoading(false); }); }, []);
+  useEffect(() => { if (!user) return; return onSnapshot(query(collection(db, 'artifacts', appId, 'public', 'data', 'leads')), (snap) => { setLeads(snap.docs.map(d => ({id: d.id, ...d.data()})).sort((a,b) => new Date(b.dateCreated) - new Date(a.dateCreated))); }); }, [user]);
+  const handleCreateLead = async (d) => { if(user) { await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'leads'), d); setView('intake-success'); }};
+  const handleUpdateLead = async (d) => { if(user) { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'leads', d.id), d); setView('walkthrough-success'); }};
 
-  useEffect(() => {
-    if (!user) return;
-    const leadsRef = collection(db, 'artifacts', appId, 'public', 'data', 'leads');
-    const q = query(leadsRef); 
+  if (authLoading) return <div className="min-h-screen flex items-center justify-center bg-neutral-50"><Loader2 className="animate-spin text-neutral-300"/></div>;
 
-    const unsubscribeData = onSnapshot(q, (snapshot) => {
-      const loadedLeads = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }));
-      loadedLeads.sort((a, b) => new Date(b.dateCreated) - new Date(a.dateCreated));
-      setLeads(loadedLeads);
-    }, (error) => {
-      console.error("Firestore Listen Error:", error);
-    });
-
-    return () => unsubscribeData();
-  }, [user]);
-
-  const handleCreateLead = async (leadData) => {
-    if (!user) return;
-    const leadsRef = collection(db, 'artifacts', appId, 'public', 'data', 'leads');
-    await addDoc(leadsRef, leadData);
-    setView('intake-success');
-  };
-
-  const handleUpdateLead = async (updatedData) => {
-    if (!user) return;
-    const leadRef = doc(db, 'artifacts', appId, 'public', 'data', 'leads', updatedData.id);
-    await updateDoc(leadRef, updatedData);
-    setLastSyncedData(updatedData);
-    setView('walkthrough-success');
-  };
-
-  const handleStaffAccess = () => {
-    if (isStaffAuthenticated) {
-      setView('select-lead');
-    } else {
-      setView('staff-login');
-    }
-  };
-
-  const handleStaffLogout = () => {
-    setIsStaffAuthenticated(false);
-    setView('home');
-  };
-
-  if (authLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-50">
-        <Loader2 className="animate-spin text-slate-400" size={40} />
-      </div>
-    );
-  }
-
-  // View Routing
-  if (view === 'home') {
-    return (
-      <div className="min-h-screen bg-slate-100 p-6 flex flex-col justify-center">
-        <div className="text-center mb-10">
-          <div className="w-16 h-16 bg-slate-900 rounded-xl mx-auto flex items-center justify-center mb-4 shadow-xl">
-            <span className="text-amber-500 font-black text-2xl">LC</span>
-          </div>
-          <h1 className="text-3xl font-bold text-slate-800">Sales Portal</h1>
-          <p className="text-slate-500">Choose your workspace</p>
+  if (view === 'home') return (
+      <div className="min-h-screen bg-neutral-100 flex flex-col justify-end p-6 pb-12 relative overflow-hidden">
+        <div className="absolute top-0 left-0 w-full h-[60vh] bg-neutral-900 rounded-b-[3rem] z-0 flex items-center justify-center">
+            <div className="text-center space-y-4 p-8"><div className="inline-flex p-3 rounded-2xl bg-white/10 backdrop-blur-md border border-white/10 mb-4"><Building2 className="text-white" size={32}/></div><h1 className="text-4xl font-light text-white tracking-tight">LC CUSTOM</h1><p className="text-neutral-400 font-medium tracking-wide uppercase text-xs">Sales & Estimation Portal</p></div>
         </div>
-        <div className="grid gap-4 max-w-sm mx-auto w-full">
-          <button onClick={() => setView('intake')} className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 hover:border-blue-500 hover:shadow-md transition-all text-left flex items-center gap-4 group">
-            <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center text-blue-600 group-hover:bg-blue-600 group-hover:text-white transition-colors">
-              <UserPlus size={24}/>
-            </div>
-            <div>
-              <div className="font-bold text-slate-800 text-lg">New Lead Intake</div>
-              <div className="text-slate-500 text-sm">Open Form (Public)</div>
-            </div>
-          </button>
-          
-          <button 
-            onClick={() => {
-              alert("Link copied to clipboard: https://lccustom.biz/form");
-            }}
-            className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 hover:bg-slate-50 transition-all text-left flex items-center gap-4 group"
-          >
-             <div className="w-10 h-10 bg-slate-100 rounded-full flex items-center justify-center text-slate-600">
-               <LinkIcon size={20}/>
-             </div>
-             <div>
-               <div className="font-bold text-slate-800">Copy Customer Form Link</div>
-               <div className="text-slate-500 text-xs">Send this link to clients</div>
-             </div>
-          </button>
-          <div className="w-full h-px bg-slate-300 my-2"></div>
-          <button onClick={handleStaffAccess} className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 hover:border-amber-500 hover:shadow-md transition-all text-left flex items-center gap-4 group">
-             <div className={`w-12 h-12 rounded-full flex items-center justify-center transition-colors ${isStaffAuthenticated ? 'bg-green-100 text-green-600 group-hover:bg-green-600 group-hover:text-white' : 'bg-slate-100 text-slate-400 group-hover:bg-amber-600 group-hover:text-white'}`}>
-              {isStaffAuthenticated ? <Unlock size={24}/> : <Lock size={24}/>}
-            </div>
-            <div>
-              <div className="font-bold text-slate-800 text-lg">Sales Walkthrough</div>
-              <div className="text-slate-500 text-sm">{isStaffAuthenticated ? 'Unlocked' : 'Staff Access Only'}</div>
-            </div>
-          </button>
+        <div className="relative z-10 space-y-4 w-full max-w-sm mx-auto">
+            <button onClick={() => setView('intake')} className="w-full bg-white p-6 rounded-3xl shadow-xl shadow-neutral-900/10 flex items-center justify-between group active:scale-95 transition-transform"><div className="flex items-center gap-4"><div className="p-3 bg-amber-100 text-amber-600 rounded-full"><UserPlus size={24}/></div><div className="text-left"><div className="font-bold text-neutral-900">New Client</div><div className="text-xs text-neutral-400 font-medium uppercase tracking-wider">Intake Form</div></div></div><div className="w-10 h-10 rounded-full border border-neutral-100 flex items-center justify-center group-hover:bg-neutral-50"><ChevronRight className="text-neutral-300"/></div></button>
+            <button onClick={() => setView('login')} className="w-full bg-neutral-900 p-6 rounded-3xl shadow-xl shadow-neutral-900/20 flex items-center justify-between group active:scale-95 transition-transform"><div className="flex items-center gap-4"><div className="p-3 bg-white/10 text-white rounded-full"><Lock size={24}/></div><div className="text-left"><div className="font-bold text-white">Staff Access</div><div className="text-xs text-neutral-500 font-medium uppercase tracking-wider">Dashboard</div></div></div><ChevronRight className="text-neutral-600"/></button>
         </div>
       </div>
-    );
-  }
-
-  if (view === 'staff-login') {
-    return <StaffLogin 
-      onLogin={() => {
-        setIsStaffAuthenticated(true);
-        setView('select-lead');
-      }}
-      onCancel={() => setView('home')}
-    />;
-  }
-
-  if (view === 'intake') {
-    return <IntakeForm 
-      onCancel={() => setView('home')} 
-      onSubmit={handleCreateLead} 
-    />;
-  }
-
-  if (view === 'intake-success') {
-    return (
-      <div className="min-h-screen flex flex-col items-center justify-center p-6 text-center bg-slate-50">
-        <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center text-green-600 mb-6"><ClipboardCheck size={40}/></div>
-        <h2 className="text-2xl font-bold text-slate-900 mb-2">Lead Created!</h2>
-        <p className="text-slate-500 mb-8">The inquiry has been saved to the database.</p>
-        <button onClick={() => setView('home')} className="px-8 py-3 bg-slate-900 text-white rounded-lg font-bold">Back to Dashboard</button>
-      </div>
-    );
-  }
-
-  if (view === 'select-lead') {
-    return (
-      <div className="min-h-screen bg-slate-50 p-4">
-        <div className="flex items-center justify-between mb-6 pt-4 bg-white p-4 rounded-xl shadow-sm">
-          <div className="flex items-center gap-2">
-            <button onClick={() => setView('home')} className="p-2 bg-slate-100 rounded-full hover:bg-slate-200"><ChevronLeft size={20}/></button>
-            <h2 className="text-xl font-bold">Select Project</h2>
-          </div>
-          <button onClick={handleStaffLogout} className="text-xs bg-red-50 text-red-600 px-3 py-2 rounded-lg font-bold flex items-center gap-1 hover:bg-red-100">
-            <Lock size={12}/> Lock Access
-          </button>
-        </div>
-        <div className="relative mb-6">
-          <Search className="absolute left-3 top-3 text-slate-400" size={20}/>
-          <input type="text" placeholder="Search address or name..." className="w-full pl-10 p-3 rounded-lg border border-slate-200 shadow-sm focus:ring-2 focus:ring-blue-500 outline-none" />
-        </div>
-        <div className="space-y-3 pb-10">
-          {leads.length === 0 ? (
-             <div className="text-center py-10 text-slate-400">
-               No active leads found. Create one in Intake first.
-             </div>
-          ) : (
-            leads.map(lead => (
-              <button key={lead.id} onClick={() => { setSelectedLead(lead); setView('walkthrough'); }} className="w-full bg-white p-4 rounded-xl shadow-sm border border-slate-200 text-left hover:border-blue-500 transition-colors">
-                <div className="flex justify-between items-start mb-2">
-                   <span className="font-bold text-slate-800">{lead.clientName}</span>
-                   <span className="text-xs font-mono text-slate-400 bg-slate-100 px-2 py-1 rounded">{lead.status}</span>
-                </div>
-                <div className="flex items-center gap-2 text-slate-500 text-sm">
-                  <MapPin size={14}/> {lead.address}
-                </div>
-              </button>
-            ))
-          )}
+  );
+  if (view === 'login') return <StaffLogin onLogin={() => setView('staff-dashboard')} onCancel={() => setView('home')} />;
+  if (view === 'staff-dashboard') return (
+      <div className="min-h-screen bg-neutral-50">
+        <div className="sticky top-0 bg-neutral-50/80 backdrop-blur-md p-6 flex items-center justify-between border-b border-neutral-200 z-10"><h2 className="text-xl font-light text-neutral-900">Dashboard</h2><button onClick={() => setView('home')} className="text-xs font-bold uppercase tracking-widest text-neutral-400 hover:text-neutral-900">Exit</button></div>
+        <div className="p-6 space-y-8">
+            <div className="grid grid-cols-2 gap-4"><button onClick={() => setView('select-lead-field')} className="bg-white p-6 rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] flex flex-col items-center gap-3 text-center active:scale-95 transition-transform"><div className="p-4 bg-blue-50 text-blue-600 rounded-2xl"><HardHat size={32}/></div><span className="font-bold text-sm text-neutral-700">Field Walk</span></button><button onClick={() => setView('select-lead-office')} className="bg-white p-6 rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] flex flex-col items-center gap-3 text-center active:scale-95 transition-transform"><div className="p-4 bg-emerald-50 text-emerald-600 rounded-2xl"><Briefcase size={32}/></div><span className="font-bold text-sm text-neutral-700">Office Admin</span></button></div>
+            <div><div className="text-xs font-bold text-neutral-400 uppercase tracking-widest mb-4 px-2">Recent Inquiries</div><div className="space-y-3">{leads.slice(0,5).map(l => ( <div key={l.id} className="bg-white p-5 rounded-2xl border border-neutral-100 flex justify-between items-center shadow-sm"><div><div className="font-bold text-neutral-900 text-sm">{l.clientName}</div><div className="text-xs text-neutral-400 mt-1">{l.status}</div></div>{l.status === 'Needs Estimate Review' && <div className="h-2 w-2 rounded-full bg-amber-500 animate-pulse"></div>}</div>))}</div></div>
         </div>
       </div>
-    );
-  }
-
-  if (view === 'walkthrough') {
-    return <WalkthroughFlow 
-      lead={selectedLead} 
-      onBack={() => setView('select-lead')}
-      onComplete={handleUpdateLead}
-    />;
-  }
-
-  if (view === 'walkthrough-success') {
-    return (
-      <div className="min-h-screen flex flex-col items-center justify-center p-6 text-center bg-slate-50">
-        <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center text-green-600 mb-6"><Wifi size={40}/></div>
-        <h2 className="text-2xl font-bold text-slate-900 mb-2">Estimate Started!</h2>
-        <p className="text-slate-500 mb-8 max-w-xs mx-auto">Data saved to cloud. The Estimator can now see photos and scope.</p>
-        <div className="w-full bg-slate-900 text-slate-300 text-left p-4 rounded-lg font-mono text-xs overflow-auto max-h-40 mb-6">
-          {JSON.stringify(lastSyncedData, null, 2)}
-        </div>
-        <button onClick={() => setView('select-lead')} className="px-8 py-3 bg-blue-600 text-white rounded-lg font-bold shadow-lg">Return to List</button>
-      </div>
-    );
-  }
+  );
+  if (view === 'select-lead-field') return ( <div className="min-h-screen bg-neutral-50 p-6"><div className="flex items-center gap-4 mb-8 pt-2"><button onClick={() => setView('staff-dashboard')} className="p-3 bg-white rounded-full shadow-sm"><ChevronLeft size={20}/></button><h2 className="text-xl font-light">Select Project</h2></div><div className="space-y-4">{leads.map(l => <button key={l.id} onClick={() => { setSelectedLead(l); setView('walkthrough'); }} className="w-full bg-white p-6 rounded-3xl shadow-[0_4px_20px_rgb(0,0,0,0.03)] text-left active:scale-95 transition-transform"><div className="font-bold text-lg">{l.clientName}</div><div className="text-sm text-neutral-400 mt-1">{l.status}</div></button>)}</div></div>);
+  if (view === 'select-lead-office') return ( <div className="min-h-screen bg-neutral-50 p-6"><div className="flex items-center gap-4 mb-8 pt-2"><button onClick={() => setView('staff-dashboard')} className="p-3 bg-white rounded-full shadow-sm"><ChevronLeft size={20}/></button><h2 className="text-xl font-light">Review Estimates</h2></div><div className="space-y-4">{leads.map(l => ( <button key={l.id} onClick={() => { setSelectedLead(l); setView('office-estimate'); }} className="w-full bg-white p-6 rounded-3xl shadow-[0_4px_20px_rgb(0,0,0,0.03)] text-left flex justify-between items-center active:scale-95 transition-transform"><div><div className="font-bold text-lg">{l.clientName}</div><div className="text-sm text-neutral-400 mt-1">{l.status}</div></div>{l.aiEstimate && <div className="p-2 bg-green-50 text-green-600 rounded-full"><FileCheck size={20}/></div>}</button>))}</div></div>);
+  if (view === 'intake') return <IntakeForm onCancel={() => setView('home')} onSubmit={handleCreateLead} />;
+  if (view === 'intake-success') return <div className="min-h-screen bg-neutral-900 flex flex-col items-center justify-center p-8 text-center text-white"><div className="w-20 h-20 bg-green-500 rounded-full flex items-center justify-center mb-6 shadow-2xl shadow-green-500/50"><CheckCircle size={40} className="text-white"/></div><h2 className="text-3xl font-light mb-2">Success</h2><p className="text-neutral-400 mb-8">Client intake submitted successfully.</p><Button variant="secondary" onClick={() => setView('home')}>Done</Button></div>;
+  if (view === 'walkthrough') return <WalkthroughFlow lead={selectedLead} onBack={() => setView('select-lead-field')} onComplete={handleUpdateLead} />;
+  if (view === 'walkthrough-success') return <div className="min-h-screen bg-neutral-900 flex flex-col items-center justify-center p-8 text-center text-white"><div className="w-20 h-20 bg-blue-500 rounded-full flex items-center justify-center mb-6 shadow-2xl shadow-blue-500/50"><UploadCloud size={40} className="text-white"/></div><h2 className="text-3xl font-light mb-2">Synced</h2><p className="text-neutral-400 mb-8">Photos saved to Drive. Estimate generated by AI.</p><Button variant="secondary" onClick={() => setView('staff-dashboard')}>Return to Dashboard</Button></div>;
+  if (view === 'office-estimate') return <OfficeEstimateView lead={selectedLead} onBack={() => setView('select-lead-office')} />;
 
   return null;
 }
