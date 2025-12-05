@@ -5,7 +5,7 @@ import {
   Building2, Loader2, Wifi, UserPlus, HardHat, Search, ArrowRight, 
   Link as LinkIcon, Lock, Unlock, TestTube, Edit2, UploadCloud, X, 
   Image as ImageIcon, DollarSign, FileCheck, Briefcase, Menu, Plus,
-  Sparkles, FolderPlus, Trash2
+  Sparkles, FolderPlus, Trash2, Download
 } from 'lucide-react';
 
 import { initializeApp } from "firebase/app";
@@ -247,6 +247,7 @@ const IntakeForm = ({ onCancel, onSubmit }) => {
 const WalkthroughFlow = ({ lead, onBack, onComplete }) => {
   const [step, setStep] = useState(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isCompressing, setIsCompressing] = useState(false);
   const [statusMsg, setStatusMsg] = useState("");
   const [photos, setPhotos] = useState([]); 
   
@@ -260,12 +261,33 @@ const WalkthroughFlow = ({ lead, onBack, onComplete }) => {
 
   const updateField = (f, v) => setFormData(p => ({ ...p, [f]: v }));
   
-  const handleAddPhoto = async (e) => {
-    const file = e.target.files[0];
-    if (file) { 
-        const compressedBase64 = await compressImage(file); 
-        const newPhoto = { id: Date.now(), data: compressedBase64, name: `Photo ${photos.length + 1}` };
-        setPhotos(prev => [...prev, newPhoto]);
+  // -- UPDATED PHOTO HANDLER (MULTI-SELECT) --
+  const handleAddPhotos = async (e) => {
+    // 1. Get all selected files
+    const files = Array.from(e.target.files);
+    
+    if (files.length > 0) {
+        setIsCompressing(true);
+        // 2. Compress all images in parallel
+        try {
+          const newPhotos = await Promise.all(
+            files.map(async (file) => {
+              const compressedBase64 = await compressImage(file);
+              return { 
+                id: Date.now() + Math.random(), // Unique ID
+                data: compressedBase64, 
+                name: file.name 
+              };
+            })
+          );
+          // 3. Add to state
+          setPhotos(prev => [...prev, ...newPhotos]);
+        } catch (error) {
+          console.error("Compression error:", error);
+          alert("Error processing images. Please try fewer at a time.");
+        } finally {
+          setIsCompressing(false);
+        }
     }
   };
 
@@ -275,16 +297,13 @@ const WalkthroughFlow = ({ lead, onBack, onComplete }) => {
     setIsSubmitting(true);
     let aiEstimate = null;
 
-    // STEP 1: AI GENERATION (Run this FIRST so the text file is smart)
+    // STEP 1: AI GENERATION
     setStatusMsg(`AI Analyzing ${photos.length} photos...`);
-    
-    // Call Gemini
     const realAiResult = await generateEstimateWithGemini(photos, formData.scopeNotes);
     
     if (realAiResult) {
         aiEstimate = { ...realAiResult, dateGenerated: new Date().toISOString(), status: "Draft" };
     } else {
-        // Fallback
         aiEstimate = {
             total: 0,
             summary: "AI could not generate estimate. See raw notes.",
@@ -293,8 +312,7 @@ const WalkthroughFlow = ({ lead, onBack, onComplete }) => {
         };
     }
 
-    // STEP 2: PREPARE THE SMART SCOPE DOCUMENT
-    // Now we can include the AI's summary inside the text file!
+    // STEP 2: PREPARE SCOPE DOC
     const aiSummary = aiEstimate.summary || "No AI summary available.";
     const aiDivisions = aiEstimate.divisions ? aiEstimate.divisions.map(d => `DIV ${d.code} - ${d.name}:\n${d.items.map(i => ` - ${i.task}: ${i.desc}`).join('\n')}`).join('\n\n') : "";
 
@@ -320,7 +338,7 @@ DETAILED BREAKDOWN:
 ${aiDivisions}
 `;
 
-    // STEP 3: UPLOAD TO DRIVE (ZAPIER)
+    // STEP 3: UPLOAD TO DRIVE
     setStatusMsg("Uploading Smart Doc & Photos...");
     try {
        if (ZAPIER_DRIVE_WEBHOOK_URL && ZAPIER_DRIVE_WEBHOOK_URL.includes('hooks.zapier.com')) {
@@ -329,11 +347,9 @@ ${aiDivisions}
           data.append("clientName", formData.clientName);
           data.append("folderName", `${formData.clientName} - ESTIMATE`);
           
-          // Attach the Smart Document
           const scopeBlob = new Blob([fullDocumentContent], { type: 'text/plain' });
           data.append('scope_document', scopeBlob, `Scope of Work.txt`);
 
-          // Attach Photos
           photos.forEach((photo, index) => {
             const blob = dataURItoBlob(photo.data);
             if (blob) {
@@ -345,7 +361,7 @@ ${aiDivisions}
        }
     } catch (error) { console.error("Zapier Upload Failed", error); }
 
-    // STEP 4: SAVE TO APP DATABASE
+    // STEP 4: SAVE TO DB
     const finalPayload = { 
         ...formData, 
         photos: photos.map(p => p.data), 
@@ -387,9 +403,22 @@ ${aiDivisions}
                     
                     <div className="grid grid-cols-2 gap-4">
                         <div className="aspect-square rounded-3xl border-2 border-dashed border-neutral-300 hover:border-neutral-900 hover:bg-neutral-100 transition-all flex flex-col items-center justify-center relative overflow-hidden group">
-                             <input type="file" accept="image/*" capture="environment" onChange={handleAddPhoto} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"/>
-                             <div className="p-3 bg-neutral-900 text-white rounded-full mb-2 group-hover:scale-110 transition-transform"><Plus size={24}/></div>
-                             <span className="text-xs font-bold uppercase tracking-widest text-neutral-900">Add Photo</span>
+                             {/* UPDATED INPUT: Multiple allowed, capture removed to allow Gallery access */}
+                             <input 
+                                type="file" 
+                                accept="image/*" 
+                                multiple // Allow selecting multiple files
+                                onChange={handleAddPhotos} 
+                                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+                             />
+                             {isCompressing ? (
+                                <Loader2 className="animate-spin text-neutral-400" size={24} />
+                             ) : (
+                                <>
+                                    <div className="p-3 bg-neutral-900 text-white rounded-full mb-2 group-hover:scale-110 transition-transform"><Plus size={24}/></div>
+                                    <span className="text-xs font-bold uppercase tracking-widest text-neutral-900 text-center">Add Photos</span>
+                                </>
+                             )}
                         </div>
                         {photos.map((photo) => (
                             <div key={photo.id} className="aspect-square rounded-3xl relative overflow-hidden border border-neutral-100 shadow-sm bg-white">
@@ -397,7 +426,7 @@ ${aiDivisions}
                                 <div className="absolute inset-0 bg-black/10"></div>
                                 <button onClick={() => removePhoto(photo.id)} className="absolute top-2 right-2 bg-red-500 text-white p-2 rounded-full shadow-lg active:scale-90 transition-transform"><Trash2 size={16}/></button>
                                 <div className="absolute bottom-2 left-2 right-2">
-                                    <span className="bg-black/50 backdrop-blur-md text-white text-[10px] font-bold px-2 py-1 rounded-full">{photo.name}</span>
+                                    <span className="bg-black/50 backdrop-blur-md text-white text-[10px] font-bold px-2 py-1 rounded-full truncate">{photo.name}</span>
                                 </div>
                             </div>
                         ))}
@@ -425,7 +454,7 @@ ${aiDivisions}
       <div className="fixed bottom-0 left-0 right-0 p-6 bg-gradient-to-t from-neutral-50 via-neutral-50 to-transparent z-20">
          <div className="flex gap-4 max-w-lg mx-auto">
             {step > 0 && <button onClick={() => setStep(s => s-1)} className="w-14 h-14 rounded-full bg-white border border-neutral-200 flex items-center justify-center shadow-lg shadow-neutral-200/50 active:scale-95 transition-transform"><ChevronLeft className="text-neutral-600"/></button>}
-            <button onClick={step === 3 ? handleSync : () => setStep(s => s+1)} disabled={isSubmitting} className={`flex-1 h-14 rounded-full font-bold text-sm tracking-widest uppercase flex items-center justify-center gap-2 shadow-xl active:scale-95 transition-all ${step === 3 ? 'bg-neutral-900 text-white shadow-neutral-400/50' : 'bg-white text-neutral-900 border border-neutral-200'}`}>
+            <button onClick={step === 3 ? handleSync : () => setStep(s => s+1)} disabled={isSubmitting || isCompressing} className={`flex-1 h-14 rounded-full font-bold text-sm tracking-widest uppercase flex items-center justify-center gap-2 shadow-xl active:scale-95 transition-all ${step === 3 ? 'bg-neutral-900 text-white shadow-neutral-400/50' : 'bg-white text-neutral-900 border border-neutral-200'}`}>
                 {isSubmitting ? <Loader2 className="animate-spin"/> : step === 3 ? "Generate Report" : "Next Step"}
                 {!isSubmitting && step !== 3 && <ArrowRight size={16}/>}
             </button>
@@ -485,11 +514,54 @@ export default function WalkthroughApp() {
   const [selectedLead, setSelectedLead] = useState(null);
   const [user, setUser] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
+  const [deferredPrompt, setDeferredPrompt] = useState(null);
 
-  useEffect(() => { const initAuth = async () => { try { if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) await signInWithCustomToken(auth, __initial_auth_token); else await signInAnonymously(auth); } catch (e) {} }; initAuth(); return onAuthStateChanged(auth, (u) => { setUser(u); setAuthLoading(false); }); }, []);
+  // --- PWA INIT LOGIC ---
+  useEffect(() => {
+    // 1. PWA Install Prompt Listener
+    const handleBeforeInstallPrompt = (e) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+    };
+    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+
+    // 2. Inject PWA Meta Tags
+    const metaTags = [
+        { name: 'theme-color', content: '#171717' },
+        { name: 'apple-mobile-web-app-capable', content: 'yes' },
+        { name: 'apple-mobile-web-app-status-bar-style', content: 'black-translucent' }
+    ];
+
+    metaTags.forEach(tagData => {
+        let meta = document.querySelector(`meta[name="${tagData.name}"]`);
+        if (!meta) {
+            meta = document.createElement('meta');
+            meta.name = tagData.name;
+            document.head.appendChild(meta);
+        }
+        meta.content = tagData.content;
+    });
+
+    const initAuth = async () => { try { if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) await signInWithCustomToken(auth, __initial_auth_token); else await signInAnonymously(auth); } catch (e) {} }; initAuth(); 
+    
+    return () => {
+        window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+        onAuthStateChanged(auth, (u) => { setUser(u); setAuthLoading(false); }); 
+    };
+  }, []);
+
   useEffect(() => { if (!user) return; return onSnapshot(query(collection(db, 'artifacts', appId, 'public', 'data', 'leads')), (snap) => { setLeads(snap.docs.map(d => ({id: d.id, ...d.data()})).sort((a,b) => new Date(b.dateCreated) - new Date(a.dateCreated))); }); }, [user]);
+  
   const handleCreateLead = async (d) => { if(user) { await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'leads'), d); setView('intake-success'); }};
   const handleUpdateLead = async (d) => { if(user) { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'leads', d.id), d); setView('walkthrough-success'); }};
+  
+  const handleInstallClick = async () => {
+    if (deferredPrompt) {
+        deferredPrompt.prompt();
+        const { outcome } = await deferredPrompt.userChoice;
+        if (outcome === 'accepted') setDeferredPrompt(null);
+    }
+  };
 
   if (authLoading) return <div className="min-h-screen flex items-center justify-center bg-neutral-50"><Loader2 className="animate-spin text-neutral-300"/></div>;
 
@@ -501,6 +573,11 @@ export default function WalkthroughApp() {
         <div className="relative z-10 space-y-4 w-full max-w-sm mx-auto">
             <button onClick={() => setView('intake')} className="w-full bg-white p-6 rounded-3xl shadow-xl shadow-neutral-900/10 flex items-center justify-between group active:scale-95 transition-transform"><div className="flex items-center gap-4"><div className="p-3 bg-amber-100 text-amber-600 rounded-full"><UserPlus size={24}/></div><div className="text-left"><div className="font-bold text-neutral-900">New Client</div><div className="text-xs text-neutral-400 font-medium uppercase tracking-wider">Intake Form</div></div></div><div className="w-10 h-10 rounded-full border border-neutral-100 flex items-center justify-center group-hover:bg-neutral-50"><ChevronRight className="text-neutral-300"/></div></button>
             <button onClick={() => setView('login')} className="w-full bg-neutral-900 p-6 rounded-3xl shadow-xl shadow-neutral-900/20 flex items-center justify-between group active:scale-95 transition-transform"><div className="flex items-center gap-4"><div className="p-3 bg-white/10 text-white rounded-full"><Lock size={24}/></div><div className="text-left"><div className="font-bold text-white">Staff Access</div><div className="text-xs text-neutral-500 font-medium uppercase tracking-wider">Dashboard</div></div></div><ChevronRight className="text-neutral-600"/></button>
+            {deferredPrompt && (
+                <button onClick={handleInstallClick} className="w-full bg-transparent p-4 flex items-center justify-center gap-2 text-neutral-400 hover:text-neutral-900 text-xs font-bold uppercase tracking-widest transition-colors">
+                    <Download size={16} /> Install App
+                </button>
+            )}
         </div>
       </div>
   );
